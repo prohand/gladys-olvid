@@ -1,0 +1,171 @@
+{
+  "manifest_version": 1,
+  "type": "communication",
+  "name": "Olvid",
+  "description": {
+    "en": "Chat with your home from Olvid, the end-to-end encrypted messenger (personal profile).",
+    "fr": "Discutez avec votre maison depuis Olvid, la messagerie chiffrée de bout en bout."
+  },
+  "version": "1.0.0",
+  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.0",
+  "gladys_version": ">=4.85.0",
+  "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
+  "messaging": {
+    "receive": true
+  },
+  "config_schema": [
+    {
+      "key": "intro",
+      "type": "section",
+      "label": { "en": "Before you start", "fr": "Avant de commencer" },
+      "description": {
+        "en": "Olvid has no cloud bot API: messages go through an Olvid daemon you run next to Gladys, which holds your personal Olvid profile. Start the daemon container, choose an admin client key, then fill it in below. The full walkthrough is in the documentation.",
+        "fr": "Olvid n'a pas d'API bot dans le cloud : les messages passent par un démon Olvid que vous faites tourner à côté de Gladys, qui héberge votre profil Olvid particulier. Démarrez le conteneur du démon, choisissez une clé client admin, puis renseignez-la ci-dessous. La marche à suivre complète est dans la documentation."
+      },
+      "links": [
+        {
+          "url": "https://doc.bot.olvid.io/en/stable/daemon/daemon.html",
+          "label": { "en": "Olvid daemon documentation", "fr": "Documentation du démon Olvid" }
+        }
+      ]
+    },
+    {
+      "key": "daemon_url",
+      "type": "string",
+      "label": { "en": "Olvid daemon URL", "fr": "URL du démon Olvid" },
+      "description": {
+        "en": "gRPC endpoint of the daemon, reachable from this container. http:// for plaintext, https:// when the daemon serves TLS.",
+        "fr": "Point d'accès gRPC du démon, joignable depuis ce conteneur. http:// en clair, https:// si le démon expose du TLS."
+      },
+      "required": true,
+      "default": "http://olvid-daemon:50051",
+      "placeholder": { "en": "http://olvid-daemon:50051", "fr": "http://olvid-daemon:50051" }
+    },
+    {
+      "key": "admin_client_key",
+      "type": "secret",
+      "label": { "en": "Admin client key", "fr": "Clé client admin" },
+      "description": {
+        "en": "The OLVID_ADMIN_CLIENT_KEY_* value of the daemon container. Gladys uses it once to pick its profile and mint its own key.",
+        "fr": "La valeur OLVID_ADMIN_CLIENT_KEY_* du conteneur du démon. Gladys s'en sert pour choisir son profil et créer sa propre clé."
+      },
+      "required": true
+    },
+    {
+      "key": "identity_id",
+      "type": "number",
+      "label": { "en": "Olvid profile number", "fr": "Numéro du profil Olvid" },
+      "description": {
+        "en": "Which profile of the daemon to use. Leave 0 to take the first one, and create one when the daemon is empty.",
+        "fr": "Profil du démon à utiliser. Laissez 0 pour prendre le premier, et en créer un si le démon est vide."
+      },
+      "required": false,
+      "default": 0,
+      "min": 0,
+      "max": 1000
+    },
+    {
+      "key": "profile_first_name",
+      "type": "string",
+      "label": { "en": "Profile first name", "fr": "Prénom du profil" },
+      "description": {
+        "en": "Name shown to your contacts, used when Gladys creates the Olvid profile.",
+        "fr": "Nom affiché à vos contacts, utilisé quand Gladys crée le profil Olvid."
+      },
+      "required": false,
+      "default": "Gladys"
+    },
+    {
+      "key": "profile_last_name",
+      "type": "string",
+      "label": { "en": "Profile last name", "fr": "Nom du profil" },
+      "required": false,
+      "default": "Assistant"
+    },
+    {
+      "key": "auto_accept_invitations",
+      "type": "boolean",
+      "label": {
+        "en": "Accept invitations automatically",
+        "fr": "Accepter automatiquement les invitations"
+      },
+      "description": {
+        "en": "Gladys accepts the invitations it receives, so you only have to exchange the 4-digit code. Group invitations are never accepted.",
+        "fr": "Gladys accepte les invitations reçues, il ne vous reste que le code à 4 chiffres à échanger. Les invitations de groupe ne sont jamais acceptées."
+      },
+      "required": false,
+      "default": true
+    }
+  ],
+  "actions": [
+    {
+      "key": "test_connection",
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "description": {
+        "en": "Check that the daemon answers and show the profile Gladys drives.",
+        "fr": "Vérifie que le démon répond et affiche le profil piloté par Gladys."
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "key": "invitation_link",
+      "label": { "en": "Show the invitation link", "fr": "Afficher le lien d'invitation" },
+      "description": {
+        "en": "The Olvid link to open on your phone to add Gladys to your contacts.",
+        "fr": "Le lien Olvid à ouvrir sur votre téléphone pour ajouter Gladys à vos contacts."
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "key": "pending_invitations",
+      "label": { "en": "Invitations in progress", "fr": "Invitations en cours" },
+      "description": {
+        "en": "Where each invitation stands, and the 4-digit code to type in Olvid.",
+        "fr": "L'état de chaque invitation, et le code à 4 chiffres à saisir dans Olvid."
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "key": "accept_invitations",
+      "label": {
+        "en": "Accept pending invitations",
+        "fr": "Accepter les invitations en attente"
+      },
+      "description": {
+        "en": "Only needed when automatic acceptance is turned off. Group invitations are never accepted.",
+        "fr": "Utile uniquement si l'acceptation automatique est désactivée. Les invitations de groupe ne sont jamais acceptées."
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "key": "validate_sas",
+      "label": { "en": "Validate an invitation", "fr": "Valider une invitation" },
+      "description": {
+        "en": "Type here the 4-digit code displayed by your Olvid app to complete the invitation.",
+        "fr": "Saisissez ici le code à 4 chiffres affiché par votre application Olvid pour finaliser l'invitation."
+      },
+      "timeout_seconds": 30,
+      "fields": [
+        {
+          "key": "sas",
+          "type": "string",
+          "label": { "en": "4-digit code", "fr": "Code à 4 chiffres" },
+          "required": true,
+          "placeholder": { "en": "1234", "fr": "1234" }
+        },
+        {
+          "key": "invitation_id",
+          "type": "number",
+          "label": { "en": "Invitation number", "fr": "Numéro d'invitation" },
+          "description": {
+            "en": "Only needed when several invitations are in progress.",
+            "fr": "Nécessaire uniquement si plusieurs invitations sont en cours."
+          },
+          "required": false,
+          "default": 0,
+          "min": 0
+        }
+      ]
+    }
+  ]
+}

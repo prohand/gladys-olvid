@@ -1,0 +1,31 @@
+{
+  "name": "gladys-olvid",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Olvid communication channel for Gladys Assistant: chat with your home from Olvid, the end-to-end encrypted messenger.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.9.0",
+    "@gladysassistant/integration-sdk": "^0.11.0",
+    "@olvid/bot-node": "^2.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.7.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.5"
+  },
+  "license": "AGPL-3.0-only"
+}
