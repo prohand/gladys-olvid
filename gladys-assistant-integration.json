@@ -18,7 +18,9 @@
       "name": "olvid-daemon",
       "docker_image": "olvid/bot-daemon:2.0.1",
       "start": "manual",
-      "env": { "JAVA_FLAGS": "-Xmx512m" },
+      "env": {
+        "JAVA_FLAGS": "-Xmx512m -Djava.io.tmpdir=/daemon/data/tmp -Dorg.sqlite.tmpdir=/daemon/data/tmp"
+      },
       "volumes": ["/daemon/data", "/daemon/backups"],
       "read_only": false,
       "memory_mb": 2048,

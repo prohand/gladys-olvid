@@ -49,6 +49,17 @@ export const ADMIN_KEY_ENV = 'OLVID_ADMIN_CLIENT_KEY_GLADYS';
 export const DAEMON_VOLUMES = ['/daemon/data', '/daemon/backups'];
 const CONTAINERS_DATA_DIR = '/data/containers';
 
+// Temporary folder of the daemon, inside its data volume. The default `/tmp`
+// is mounted `noexec` in the sandbox, and the daemon unpacks native libraries
+// there before loading them (sqlite-jdbc, JNA): mapping them then fails with
+// "failed to map segment from shared object" and the daemon exits. A folder in
+// the volume is writable and executable, so the JVM is pointed at it through
+// the manifest `env` (see JAVA_FLAGS).
+export const DAEMON_TMP_DIR = '/daemon/data/tmp';
+
+// Everything the integration creates before the container starts.
+const PREPARED_DIRS = [...DAEMON_VOLUMES, DAEMON_TMP_DIR];
+
 /**
  * @description Generate the admin client key of the managed daemon. 32 random
  * bytes, hex-encoded: the same shape as the `openssl rand -hex 32` the Olvid
@@ -73,6 +84,9 @@ export function generateAdminClientKey() {
  * while the container may well run as somebody else — so the integration
  * creates them itself, in its own data folder, and opens the permissions
  * rather than betting on a user id it does not know.
+ *
+ * The daemon's temporary folder is prepared the same way, for the same reason
+ * (see DAEMON_TMP_DIR).
  * @param {object} [options] - Options.
  * @param {string} [options.dataDir] - Root of the sub-container data folders.
  * @returns {Promise<void>} Always resolves: a failure here is not worth
@@ -81,7 +95,7 @@ export function generateAdminClientKey() {
  * await prepareDaemonVolumes();
  */
 export async function prepareDaemonVolumes({ dataDir = CONTAINERS_DATA_DIR } = {}) {
-  for (const volume of DAEMON_VOLUMES) {
+  for (const volume of PREPARED_DIRS) {
     const path = join(dataDir, DAEMON_CONTAINER_NAME, volume);
     try {
       await mkdir(path, { recursive: true });

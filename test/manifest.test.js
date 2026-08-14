@@ -10,7 +10,11 @@ import { readFile } from 'node:fs/promises';
 
 import { buildActions } from '../src/actions.js';
 import { DEFAULT_CONFIG, INTERNAL_CONFIG_KEYS } from '../src/config.js';
-import { DAEMON_CONTAINER_NAME, MANAGED_DAEMON_URL } from '../src/olvid/container.js';
+import {
+  DAEMON_CONTAINER_NAME,
+  DAEMON_TMP_DIR,
+  MANAGED_DAEMON_URL,
+} from '../src/olvid/container.js';
 
 const manifest = JSON.parse(
   await readFile(new URL('../gladys-assistant-integration.json', import.meta.url), 'utf8'),
@@ -119,6 +123,11 @@ test('the manifest declares the Olvid daemon the code starts', () => {
       `"${key}" is a secret, not a manifest env`,
     );
   }
+  // The JVM must write and EXECUTE its unpacked native libraries somewhere,
+  // and /tmp is mounted noexec in the sandbox: the temporary folder declared
+  // here is the one the integration prepares inside the data volume.
+  assert.ok(daemon.env.JAVA_FLAGS.includes(`-Djava.io.tmpdir=${DAEMON_TMP_DIR}`));
+  assert.ok(daemon.env.JAVA_FLAGS.includes(`-Dorg.sqlite.tmpdir=${DAEMON_TMP_DIR}`));
   // Started by the integration, precisely because of that key.
   assert.equal(daemon.start, 'manual');
   // The Olvid identity lives in those volumes: without them, every restart

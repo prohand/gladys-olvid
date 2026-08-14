@@ -15,6 +15,7 @@ import { apiError, createFakeGladys } from './helpers/fakeGladys.js';
 import {
   ADMIN_KEY_ENV,
   DAEMON_CONTAINER_NAME,
+  DAEMON_TMP_DIR,
   DAEMON_VOLUMES,
   MANAGED_DAEMON_URL,
   createDaemonContainerWatch,
@@ -106,7 +107,7 @@ test('the daemon volumes are created writable, whoever the container runs as', a
 
   await prepareDaemonVolumes({ dataDir });
 
-  for (const volume of DAEMON_VOLUMES) {
+  for (const volume of [...DAEMON_VOLUMES, DAEMON_TMP_DIR]) {
     const path = join(dataDir, DAEMON_CONTAINER_NAME, volume);
     // The daemon writes its cryptographic seeds under <data>/security on the
     // first start, and exits when it cannot: the folder must not belong to a
