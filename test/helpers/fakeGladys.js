@@ -33,11 +33,36 @@ export function createFakeGladys({
   linkedContacts = new Set(),
   codes = new Map(),
   contacts = [],
+  startContainerError = null,
+  stopContainerError = null,
 } = {}) {
   const calls = [];
   return {
     calls,
     linkedContacts,
+    config: {},
+
+    async setConfig(patch) {
+      calls.push({ method: 'setConfig', patch });
+      Object.assign(this.config, patch);
+      return { success: true };
+    },
+
+    async startContainer(name, options = {}) {
+      calls.push({ method: 'startContainer', name, ...options });
+      if (startContainerError) {
+        throw startContainerError;
+      }
+      return { success: true };
+    },
+
+    async stopContainer(name) {
+      calls.push({ method: 'stopContainer', name });
+      if (stopContainerError) {
+        throw stopContainerError;
+      }
+      return { success: true };
+    },
 
     async publishMessage(contactId, text, options = {}) {
       calls.push({ method: 'publishMessage', contactId, text, options });

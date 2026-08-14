@@ -37,6 +37,11 @@ const CLIENT_KEY_NAME = 'gladys-assistant';
 const HEALTH_CHECK_INTERVAL_MS = 60_000;
 const RECONNECT_BASE_DELAY_MS = 5_000;
 const RECONNECT_MAX_DELAY_MS = 300_000;
+// Attempts kept at the base delay before the exponential backoff starts. The
+// first failures of a session are usually not a problem to back off from: the
+// daemon Gladys just started is still booting (a JVM, plus the image pull on
+// the very first install), and answering "unavailable" while it does.
+const RECONNECT_STEADY_ATTEMPTS = 12;
 
 // Invitation statuses where the user has to read a code in Gladys, or type
 // theirs in it — the manual step of the Olvid trust establishment.
@@ -171,10 +176,7 @@ export class OlvidDaemon {
     if (this.stopping || this.reconnectTimer) {
       return;
     }
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY_MS * 2 ** Math.min(this.reconnectAttempts, 6),
-      RECONNECT_MAX_DELAY_MS,
-    );
+    const delay = reconnectDelay(this.reconnectAttempts);
     logger.info(`Next connection attempt in ${Math.round(delay / 1000)} s`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -380,6 +382,12 @@ export class OlvidDaemon {
       ...config,
       // Never lose the key we minted: it is stored asynchronously in Gladys.
       client_key: config.client_key || this.config?.client_key || '',
+      // Nor the address and key of the daemon in use. They can be absent from
+      // the user configuration (the managed daemon resolves them at startup),
+      // and a change of either restarts the session through requiresReconnect
+      // instead of landing here — so whatever we already hold is the truth.
+      daemon_url: config.daemon_url || this.config?.daemon_url || '',
+      admin_client_key: config.admin_client_key || this.config?.admin_client_key || '',
     };
     if (this.client) {
       await this.applyInvitationSettings();
@@ -706,6 +714,20 @@ export class OlvidDaemon {
       throw new Error('not connected to the Olvid daemon');
     }
   }
+}
+
+/**
+ * @description Delay before the next connection attempt: a steady base delay
+ * while the daemon may simply be booting, then the usual exponential backoff
+ * for what looks like a durable failure (a daemon that is down, a wrong URL).
+ * @param {number} attempts - Consecutive failed attempts, starting at 1.
+ * @returns {number} Delay in milliseconds.
+ * @example
+ * reconnectDelay(1); // 5000
+ */
+export function reconnectDelay(attempts) {
+  const exponent = Math.min(Math.max(attempts - RECONNECT_STEADY_ATTEMPTS, 0), 6);
+  return Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
 }
 
 /**

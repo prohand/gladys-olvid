@@ -10,6 +10,11 @@ import { readFile } from 'node:fs/promises';
 
 import { buildActions } from '../src/actions.js';
 import { DEFAULT_CONFIG, INTERNAL_CONFIG_KEYS } from '../src/config.js';
+import {
+  DAEMON_CONTAINER_NAME,
+  DAEMON_TMP_DIR,
+  MANAGED_DAEMON_URL,
+} from '../src/olvid/container.js';
 
 const manifest = JSON.parse(
   await readFile(new URL('../gladys-assistant-integration.json', import.meta.url), 'utf8'),
@@ -98,6 +103,40 @@ test('every user-facing text exists in both languages', () => {
     assert.ok(text.en, `missing English text in ${JSON.stringify(text)}`);
     assert.ok(text.fr, `missing French text in ${JSON.stringify(text)}`);
   }
+});
+
+test('the manifest declares the Olvid daemon the code starts', () => {
+  const [daemon, ...others] = manifest.containers;
+  assert.equal(others.length, 0, 'a single sub-container is expected');
+  // The name is the DNS alias on the private network: the URL the code uses to
+  // reach the daemon is derived from it, so both must stay in sync.
+  assert.equal(daemon.name, DAEMON_CONTAINER_NAME);
+  assert.ok(MANAGED_DAEMON_URL.includes(`//${DAEMON_CONTAINER_NAME}:`));
+  // The image must be pinned: "latest" would silently change the Olvid client
+  // holding the user's identity.
+  assert.match(daemon.docker_image, /^olvid\/bot-daemon:\d+\.\d+\.\d+$/);
+  // The admin key is computed at runtime and passed to startContainer: it can
+  // never appear in the manifest, which is public.
+  for (const key of Object.keys(daemon.env ?? {})) {
+    assert.ok(
+      !key.startsWith('OLVID_ADMIN_CLIENT_KEY'),
+      `"${key}" is a secret, not a manifest env`,
+    );
+  }
+  // The JVM must write and EXECUTE its unpacked native libraries somewhere,
+  // and /tmp is mounted noexec in the sandbox: the temporary folder declared
+  // here is the one the integration prepares inside the data volume.
+  assert.ok(daemon.env.JAVA_FLAGS.includes(`-Djava.io.tmpdir=${DAEMON_TMP_DIR}`));
+  assert.ok(daemon.env.JAVA_FLAGS.includes(`-Dorg.sqlite.tmpdir=${DAEMON_TMP_DIR}`));
+  // Started by the integration, precisely because of that key.
+  assert.equal(daemon.start, 'manual');
+  // The Olvid identity lives in those volumes: without them, every restart
+  // would create a new profile and lose the contacts. `/daemon/backups` is
+  // written by the daemon on its own, and holds a copy of that identity.
+  assert.deepEqual(daemon.volumes, ['/daemon/data', '/daemon/backups']);
+  // No published port: the gRPC API is admin-level, it stays on the private
+  // network of the integration.
+  assert.equal(daemon.ports, undefined);
 });
 
 test('the manifest version matches the docker image tag', () => {

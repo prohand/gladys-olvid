@@ -13,71 +13,55 @@ Olvid n'a pas d'API bot dans le cloud : il n'existe pas d'équivalent du
 
 - le **démon Olvid** (`olvid/bot-daemon`) : une application Olvid complète, qui
   embarque le moteur cryptographique et héberge votre profil. Elle expose une
-  API gRPC. Vous la faites tourner chez vous, à côté de Gladys ;
+  API gRPC ;
 - le **bot** : cette intégration. Elle pilote le démon, relaie les messages
   vers Gladys et renvoie les réponses.
 
-Vos messages ne transitent donc par aucun service tiers ajouté : le démon est
-un client Olvid comme votre téléphone.
+**Gladys fait tourner le démon pour vous** : il est déclaré dans le manifeste de
+l'intégration, donc le superviseur de Gladys le lance dans son propre conteneur,
+sur le réseau privé de l'intégration. Vous n'avez ni fichier `docker-compose` à
+écrire, ni ligne de commande à taper, ni clé à recopier.
 
-## 1. Démarrer le démon Olvid
+Vos messages ne transitent par aucun service tiers ajouté : le démon est un
+client Olvid comme votre téléphone, et son API gRPC n'est publiée sur aucun
+port — seule l'intégration peut lui parler.
 
-Sur la machine qui héberge Gladys, créez un dossier `olvid/` avec ce
-`docker-compose.yml` :
+## 1. Installer l'intégration
 
-```yaml
-services:
-  olvid-daemon:
-    image: olvid/bot-daemon:2.0.1
-    container_name: olvid-daemon
-    restart: unless-stopped
-    environment:
-      # Choisissez une valeur longue et aléatoire : c'est la clé que vous
-      # collerez dans Gladys. Elle donne un contrôle total sur le démon.
-      - OLVID_ADMIN_CLIENT_KEY_GLADYS=changez-moi-par-une-valeur-aleatoire
-    volumes:
-      - ./daemon-data:/daemon/data
-    networks:
-      - gladys
-networks:
-  gladys:
-    external: true
-```
+Installez l'intégration Olvid depuis le magasin de Gladys. L'écran
+d'installation vous indique ce qu'elle va lancer en plus d'elle-même
+(`olvid/bot-daemon`, sa limite mémoire, et le fait qu'aucun port n'est publié) :
+c'est le contrat que vous acceptez.
 
-Le réseau Docker doit être **celui de Gladys** (`external: true` ci-dessus) :
-c'est ce qui permet au conteneur de l'intégration de joindre le démon par son
-nom, `olvid-daemon`. Si vos deux conteneurs ne partagent pas de réseau, publiez
-le port 50051 et utilisez l'adresse IP de la machine à la place.
+Au premier démarrage, sans rien remplir, l'intégration :
 
-Générez une clé aléatoire, puis démarrez :
+1. génère la clé admin du démon (vous ne la voyez ni ne la saisissez jamais) et
+   démarre le conteneur du démon ;
+2. crée un profil Olvid particulier, puisque le démon est vide ;
+3. se crée sa propre clé client, limitée à ce profil (la clé admin ne sert qu'à
+   ça) ;
+4. active l'acceptation automatique des invitations reçues.
 
-```bash
-openssl rand -hex 32          # la valeur à mettre dans OLVID_ADMIN_CLIENT_KEY_GLADYS
-docker compose up -d olvid-daemon
-```
+Le démarrage du démon prend quelques dizaines de secondes la première fois
+(téléchargement de l'image comprise) : le statut de l'intégration passe de
+« Démarrage du démon Olvid… » à connecté tout seul. Cliquez sur **Tester la
+connexion** pour le vérifier : Gladys répond avec la version du démon et le nom
+du profil.
 
-> Le démon écrit son profil et ses messages dans `./daemon-data`. Sauvegardez ce
-> dossier : c'est votre identité Olvid.
+Vous pouvez ensuite ajuster, si vous le souhaitez :
 
-## 2. Configurer l'intégration dans Gladys
+| Champ            | Valeur                                               |
+| ---------------- | ---------------------------------------------------- |
+| Prénom / nom     | le nom affiché à vos contacts (« Gladys Assistant ») |
+| Numéro du profil | `0` (Gladys prend le premier profil, ou en crée un)  |
 
-Dans Gladys, installez l'intégration Olvid, puis renseignez :
+> Votre **identité Olvid** (profil, contacts, messages) vit dans le volume du
+> conteneur du démon, géré par Gladys avec les données de l'intégration.
+> Désinstaller l'intégration détruit ce profil : vos contacts devront vous
+> réinviter. Pensez-y avant de désinstaller, et sauvegardez les données de votre
+> Gladys comme d'habitude.
 
-| Champ              | Valeur                                               |
-| ------------------ | ---------------------------------------------------- |
-| URL du démon Olvid | `http://olvid-daemon:50051`                          |
-| Clé client admin   | la valeur de `OLVID_ADMIN_CLIENT_KEY_GLADYS`         |
-| Numéro du profil   | `0` (Gladys prend le premier profil, ou en crée un)  |
-| Prénom / nom       | le nom affiché à vos contacts (« Gladys Assistant ») |
-
-Enregistrez, puis cliquez sur **Tester la connexion**. Gladys doit répondre avec
-la version du démon et le nom du profil. Au premier démarrage, l'intégration :
-
-1. crée un profil Olvid particulier si le démon est vide ;
-2. se crée sa propre clé client (elle n'utilise la clé admin que pour ça) ;
-3. active l'acceptation automatique des invitations reçues.
-
-## 3. Ajouter Gladys à vos contacts Olvid
+## 2. Ajouter Gladys à vos contacts Olvid
 
 C'est le parcours normal d'un particulier sur Olvid : une invitation, puis un
 code à 4 chiffres échangé entre les deux appareils. Olvid n'automatise jamais
@@ -98,7 +82,7 @@ cette étape — c'est elle qui garantit que vous parlez bien à votre maison.
 Une fois l'échange terminé, « Gladys Assistant » apparaît dans vos contacts
 Olvid.
 
-## 4. Lier votre compte Olvid à votre utilisateur Gladys
+## 3. Lier votre compte Olvid à votre utilisateur Gladys
 
 Être en contact ne suffit pas : Gladys doit savoir **quel utilisateur** parle,
 puisqu'un message reçu commande la maison avec ses droits.
@@ -123,15 +107,52 @@ depuis la même page.
 Les discussions **de groupe** sont volontairement ignorées : un message reçu
 parle avec les droits de l'utilisateur lié, ce qui n'a de sens qu'en tête-à-tête.
 
+## Utiliser votre propre démon (avancé)
+
+Si vous faites **déjà** tourner un démon Olvid — parce que vous l'utilisez pour
+d'autres bots, ou que vous voulez maîtriser sa version et ses sauvegardes —
+passez le champ **Démon Olvid** sur « Mon propre démon », puis renseignez :
+
+| Champ              | Valeur                                       |
+| ------------------ | -------------------------------------------- |
+| URL du démon Olvid | `http://olvid-daemon:50051`                  |
+| Clé client admin   | la valeur de `OLVID_ADMIN_CLIENT_KEY_GLADYS` |
+
+Gladys arrête alors le démon qu'elle gérait, pour ne pas faire tourner deux
+clients Olvid en parallèle. Le démon doit être joignable depuis le conteneur de
+l'intégration : partagez un réseau Docker (le conteneur est alors joignable par
+son nom), ou publiez le port 50051 et utilisez l'adresse IP de la machine.
+
+Un `docker-compose.yml` minimal pour ce cas :
+
+```yaml
+services:
+  olvid-daemon:
+    image: olvid/bot-daemon:2.0.1
+    container_name: olvid-daemon
+    restart: unless-stopped
+    environment:
+      # Une valeur longue et aléatoire (openssl rand -hex 32) : c'est la clé
+      # que vous collerez dans Gladys. Elle donne un contrôle total sur le démon.
+      - OLVID_ADMIN_CLIENT_KEY_GLADYS=changez-moi-par-une-valeur-aleatoire
+    volumes:
+      - ./daemon-data:/daemon/data
+```
+
+> Dans ce mode, l'identité Olvid est dans votre dossier `./daemon-data` : c'est
+> à vous de le sauvegarder.
+
 ## Dépannage
 
-| Symptôme                                    | Cause probable                                                                                    |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| « Démon Olvid injoignable »                 | Le conteneur n'est pas démarré, ou les deux conteneurs ne partagent pas de réseau Docker.         |
-| `unauthenticated` au test de connexion      | La clé client admin ne correspond pas à celle du conteneur du démon.                              |
-| L'invitation reste bloquée                  | Le code à 4 chiffres n'a pas été échangé des deux côtés (actions « Invitations » et « Valider »). |
-| « Votre compte Olvid n'est pas encore lié » | Le code de liaison n'a pas été envoyé, ou il a expiré (15 minutes).                               |
-| Rien n'arrive après un redémarrage          | Les messages reçus hors ligne sont rejoués au démarrage ; vérifiez les logs de l'intégration.     |
+| Symptôme                                     | Cause probable                                                                                                               |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| « Démarrage du démon Olvid… » qui persiste   | Le téléchargement de l'image est encore en cours, ou il a échoué : regardez les logs de l'intégration.                       |
+| « Le conteneur du démon Olvid s'est arrêté » | Le démon a quitté au démarrage : ses propres logs, dans Gladys, en donnent la raison.                                        |
+| « Démon Olvid injoignable »                  | Le démon n'a pas fini de démarrer (l'intégration réessaie toute seule). En mode « mon propre démon » : URL ou réseau Docker. |
+| `unauthenticated` au test de connexion       | Mode « mon propre démon » : la clé client admin ne correspond pas à celle du conteneur du démon.                             |
+| L'invitation reste bloquée                   | Le code à 4 chiffres n'a pas été échangé des deux côtés (actions « Invitations » et « Valider »).                            |
+| « Votre compte Olvid n'est pas encore lié »  | Le code de liaison n'a pas été envoyé, ou il a expiré (15 minutes).                                                          |
+| Rien n'arrive après un redémarrage           | Les messages reçus hors ligne sont rejoués au démarrage ; vérifiez les logs de l'intégration.                                |
 
 Les logs de l'intégration (`LOG_LEVEL=debug` pour le détail) indiquent chaque
 étape : provisionnement du profil, invitations, messages reçus.

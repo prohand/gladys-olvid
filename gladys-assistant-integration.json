@@ -13,14 +13,28 @@
   "messaging": {
     "receive": true
   },
+  "containers": [
+    {
+      "name": "olvid-daemon",
+      "docker_image": "olvid/bot-daemon:2.0.1",
+      "start": "manual",
+      "env": {
+        "JAVA_FLAGS": "-Xmx512m -Djava.io.tmpdir=/daemon/data/tmp -Dorg.sqlite.tmpdir=/daemon/data/tmp"
+      },
+      "volumes": ["/daemon/data", "/daemon/backups"],
+      "read_only": false,
+      "memory_mb": 2048,
+      "cpu": 1
+    }
+  ],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Before you start", "fr": "Avant de commencer" },
+      "label": { "en": "How it works", "fr": "Comment ça marche" },
       "description": {
-        "en": "Olvid has no cloud bot API: messages go through an Olvid daemon you run next to Gladys, which holds your personal Olvid profile. Start the daemon container, choose an admin client key, then fill it in below. The full walkthrough is in the documentation.",
-        "fr": "Olvid n'a pas d'API bot dans le cloud : les messages passent par un démon Olvid que vous faites tourner à côté de Gladys, qui héberge votre profil Olvid particulier. Démarrez le conteneur du démon, choisissez une clé client admin, puis renseignez-la ci-dessous. La marche à suivre complète est dans la documentation."
+        "en": "Olvid has no cloud bot API: messages go through an Olvid daemon holding your personal Olvid profile. Gladys runs that daemon for you, in its own container, with a key it generates — nothing to install by hand. Use the buttons below to introduce Gladys to your Olvid app, then link your account.",
+        "fr": "Olvid n'a pas d'API bot dans le cloud : les messages passent par un démon Olvid qui héberge votre profil Olvid particulier. Gladys fait tourner ce démon pour vous, dans son propre conteneur, avec une clé qu'elle génère — rien à installer à la main. Utilisez les boutons ci-dessous pour présenter Gladys à votre application Olvid, puis liez votre compte."
       },
       "links": [
         {
@@ -30,15 +44,36 @@
       ]
     },
     {
+      "key": "daemon_mode",
+      "type": "select",
+      "display": "radio",
+      "label": { "en": "Olvid daemon", "fr": "Démon Olvid" },
+      "description": {
+        "en": "Managed by Gladys: the daemon runs in a container Gladys starts, keeps up and secures with a generated key — leave the two fields below empty. Pick your own daemon only if you already run one, then fill them in.",
+        "fr": "Géré par Gladys : le démon tourne dans un conteneur que Gladys démarre, maintient et sécurise avec une clé générée — laissez les deux champs ci-dessous vides. Ne choisissez votre propre démon que si vous en faites déjà tourner un, puis renseignez-les."
+      },
+      "required": false,
+      "default": "managed",
+      "options": [
+        {
+          "value": "managed",
+          "label": { "en": "Managed by Gladys (recommended)", "fr": "Géré par Gladys (recommandé)" }
+        },
+        {
+          "value": "external",
+          "label": { "en": "My own daemon", "fr": "Mon propre démon" }
+        }
+      ]
+    },
+    {
       "key": "daemon_url",
       "type": "string",
       "label": { "en": "Olvid daemon URL", "fr": "URL du démon Olvid" },
       "description": {
-        "en": "gRPC endpoint of the daemon, reachable from this container. http:// for plaintext, https:// when the daemon serves TLS.",
-        "fr": "Point d'accès gRPC du démon, joignable depuis ce conteneur. http:// en clair, https:// si le démon expose du TLS."
+        "en": "Your own daemon only: gRPC endpoint, reachable from this container. http:// for plaintext, https:// when the daemon serves TLS.",
+        "fr": "Uniquement pour votre propre démon : point d'accès gRPC, joignable depuis ce conteneur. http:// en clair, https:// si le démon expose du TLS."
       },
-      "required": true,
-      "default": "http://olvid-daemon:50051",
+      "required": false,
       "placeholder": { "en": "http://olvid-daemon:50051", "fr": "http://olvid-daemon:50051" }
     },
     {
@@ -46,10 +81,10 @@
       "type": "secret",
       "label": { "en": "Admin client key", "fr": "Clé client admin" },
       "description": {
-        "en": "The OLVID_ADMIN_CLIENT_KEY_* value of the daemon container. Gladys uses it once to pick its profile and mint its own key.",
-        "fr": "La valeur OLVID_ADMIN_CLIENT_KEY_* du conteneur du démon. Gladys s'en sert pour choisir son profil et créer sa propre clé."
+        "en": "Your own daemon only: its OLVID_ADMIN_CLIENT_KEY_* value. Gladys uses it once to pick its profile and mint its own key.",
+        "fr": "Uniquement pour votre propre démon : sa valeur OLVID_ADMIN_CLIENT_KEY_*. Gladys s'en sert pour choisir son profil et créer sa propre clé."
       },
-      "required": true
+      "required": false
     },
     {
       "key": "identity_id",
