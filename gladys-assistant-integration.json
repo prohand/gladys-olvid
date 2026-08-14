@@ -6,8 +6,8 @@
     "en": "Chat with your home from Olvid, the end-to-end encrypted messenger (personal profile).",
     "fr": "Discutez avec votre maison depuis Olvid, la messagerie chiffrée de bout en bout."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.0",
+  "version": "1.0.1",
+  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.1",
   "gladys_version": ">=4.85.0",
   "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
   "messaging": {
@@ -21,7 +21,10 @@
       "env": {
         "JAVA_FLAGS": "-Xmx512m -Djava.io.tmpdir=/daemon/data/tmp -Dorg.sqlite.tmpdir=/daemon/data/tmp"
       },
-      "volumes": ["/daemon/data", "/daemon/backups"],
+      "volumes": [
+        "/daemon/data",
+        "/daemon/backups"
+      ],
       "read_only": false,
       "memory_mb": 2048,
       "cpu": 1
@@ -31,7 +34,10 @@
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "How it works", "fr": "Comment ça marche" },
+      "label": {
+        "en": "How it works",
+        "fr": "Comment ça marche"
+      },
       "description": {
         "en": "Olvid has no cloud bot API: messages go through an Olvid daemon holding your personal Olvid profile. Gladys runs that daemon for you, in its own container, with a key it generates — nothing to install by hand. Use the buttons below to introduce Gladys to your Olvid app, then link your account.",
         "fr": "Olvid n'a pas d'API bot dans le cloud : les messages passent par un démon Olvid qui héberge votre profil Olvid particulier. Gladys fait tourner ce démon pour vous, dans son propre conteneur, avec une clé qu'elle génère — rien à installer à la main. Utilisez les boutons ci-dessous pour présenter Gladys à votre application Olvid, puis liez votre compte."
@@ -39,7 +45,10 @@
       "links": [
         {
           "url": "https://doc.bot.olvid.io/en/stable/daemon/daemon.html",
-          "label": { "en": "Olvid daemon documentation", "fr": "Documentation du démon Olvid" }
+          "label": {
+            "en": "Olvid daemon documentation",
+            "fr": "Documentation du démon Olvid"
+          }
         }
       ]
     },
@@ -47,7 +56,10 @@
       "key": "daemon_mode",
       "type": "select",
       "display": "radio",
-      "label": { "en": "Olvid daemon", "fr": "Démon Olvid" },
+      "label": {
+        "en": "Olvid daemon",
+        "fr": "Démon Olvid"
+      },
       "description": {
         "en": "Managed by Gladys: the daemon runs in a container Gladys starts, keeps up and secures with a generated key — leave the two fields below empty. Pick your own daemon only if you already run one, then fill them in.",
         "fr": "Géré par Gladys : le démon tourne dans un conteneur que Gladys démarre, maintient et sécurise avec une clé générée — laissez les deux champs ci-dessous vides. Ne choisissez votre propre démon que si vous en faites déjà tourner un, puis renseignez-les."
@@ -57,29 +69,44 @@
       "options": [
         {
           "value": "managed",
-          "label": { "en": "Managed by Gladys (recommended)", "fr": "Géré par Gladys (recommandé)" }
+          "label": {
+            "en": "Managed by Gladys (recommended)",
+            "fr": "Géré par Gladys (recommandé)"
+          }
         },
         {
           "value": "external",
-          "label": { "en": "My own daemon", "fr": "Mon propre démon" }
+          "label": {
+            "en": "My own daemon",
+            "fr": "Mon propre démon"
+          }
         }
       ]
     },
     {
       "key": "daemon_url",
       "type": "string",
-      "label": { "en": "Olvid daemon URL", "fr": "URL du démon Olvid" },
+      "label": {
+        "en": "Olvid daemon URL",
+        "fr": "URL du démon Olvid"
+      },
       "description": {
         "en": "Your own daemon only: gRPC endpoint, reachable from this container. http:// for plaintext, https:// when the daemon serves TLS.",
         "fr": "Uniquement pour votre propre démon : point d'accès gRPC, joignable depuis ce conteneur. http:// en clair, https:// si le démon expose du TLS."
       },
       "required": false,
-      "placeholder": { "en": "http://olvid-daemon:50051", "fr": "http://olvid-daemon:50051" }
+      "placeholder": {
+        "en": "http://olvid-daemon:50051",
+        "fr": "http://olvid-daemon:50051"
+      }
     },
     {
       "key": "admin_client_key",
       "type": "secret",
-      "label": { "en": "Admin client key", "fr": "Clé client admin" },
+      "label": {
+        "en": "Admin client key",
+        "fr": "Clé client admin"
+      },
       "description": {
         "en": "Your own daemon only: its OLVID_ADMIN_CLIENT_KEY_* value. Gladys uses it once to pick its profile and mint its own key.",
         "fr": "Uniquement pour votre propre démon : sa valeur OLVID_ADMIN_CLIENT_KEY_*. Gladys s'en sert pour choisir son profil et créer sa propre clé."
@@ -89,7 +116,10 @@
     {
       "key": "identity_id",
       "type": "number",
-      "label": { "en": "Olvid profile number", "fr": "Numéro du profil Olvid" },
+      "label": {
+        "en": "Olvid profile number",
+        "fr": "Numéro du profil Olvid"
+      },
       "description": {
         "en": "Which profile of the daemon to use. Leave 0 to take the first one, and create one when the daemon is empty.",
         "fr": "Profil du démon à utiliser. Laissez 0 pour prendre le premier, et en créer un si le démon est vide."
@@ -102,7 +132,10 @@
     {
       "key": "profile_first_name",
       "type": "string",
-      "label": { "en": "Profile first name", "fr": "Prénom du profil" },
+      "label": {
+        "en": "Profile first name",
+        "fr": "Prénom du profil"
+      },
       "description": {
         "en": "Name shown to your contacts, used when Gladys creates the Olvid profile.",
         "fr": "Nom affiché à vos contacts, utilisé quand Gladys crée le profil Olvid."
@@ -113,7 +146,10 @@
     {
       "key": "profile_last_name",
       "type": "string",
-      "label": { "en": "Profile last name", "fr": "Nom du profil" },
+      "label": {
+        "en": "Profile last name",
+        "fr": "Nom du profil"
+      },
       "required": false,
       "default": "Assistant"
     },
@@ -135,7 +171,10 @@
   "actions": [
     {
       "key": "test_connection",
-      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
       "description": {
         "en": "Check that the daemon answers and show the profile Gladys drives.",
         "fr": "Vérifie que le démon répond et affiche le profil piloté par Gladys."
@@ -144,7 +183,10 @@
     },
     {
       "key": "invitation_link",
-      "label": { "en": "Show the invitation link", "fr": "Afficher le lien d'invitation" },
+      "label": {
+        "en": "Show the invitation link",
+        "fr": "Afficher le lien d'invitation"
+      },
       "description": {
         "en": "The Olvid link to open on your phone to add Gladys to your contacts.",
         "fr": "Le lien Olvid à ouvrir sur votre téléphone pour ajouter Gladys à vos contacts."
@@ -153,7 +195,10 @@
     },
     {
       "key": "pending_invitations",
-      "label": { "en": "Invitations in progress", "fr": "Invitations en cours" },
+      "label": {
+        "en": "Invitations in progress",
+        "fr": "Invitations en cours"
+      },
       "description": {
         "en": "Where each invitation stands, and the 4-digit code to type in Olvid.",
         "fr": "L'état de chaque invitation, et le code à 4 chiffres à saisir dans Olvid."
@@ -174,7 +219,10 @@
     },
     {
       "key": "validate_sas",
-      "label": { "en": "Validate an invitation", "fr": "Valider une invitation" },
+      "label": {
+        "en": "Validate an invitation",
+        "fr": "Valider une invitation"
+      },
       "description": {
         "en": "Type here the 4-digit code displayed by your Olvid app to complete the invitation.",
         "fr": "Saisissez ici le code à 4 chiffres affiché par votre application Olvid pour finaliser l'invitation."
@@ -184,14 +232,23 @@
         {
           "key": "sas",
           "type": "string",
-          "label": { "en": "4-digit code", "fr": "Code à 4 chiffres" },
+          "label": {
+            "en": "4-digit code",
+            "fr": "Code à 4 chiffres"
+          },
           "required": true,
-          "placeholder": { "en": "1234", "fr": "1234" }
+          "placeholder": {
+            "en": "1234",
+            "fr": "1234"
+          }
         },
         {
           "key": "invitation_id",
           "type": "number",
-          "label": { "en": "Invitation number", "fr": "Numéro d'invitation" },
+          "label": {
+            "en": "Invitation number",
+            "fr": "Numéro d'invitation"
+          },
           "description": {
             "en": "Only needed when several invitations are in progress.",
             "fr": "Nécessaire uniquement si plusieurs invitations sont en cours."
