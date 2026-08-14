@@ -7,15 +7,20 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { apiError, createFakeGladys } from './helpers/fakeGladys.js';
 import {
   ADMIN_KEY_ENV,
   DAEMON_CONTAINER_NAME,
+  DAEMON_VOLUMES,
   MANAGED_DAEMON_URL,
   createDaemonContainerWatch,
   describeContainerError,
   generateAdminClientKey,
+  prepareDaemonVolumes,
   startManagedDaemon,
 } from '../src/olvid/container.js';
 
@@ -94,6 +99,32 @@ test('a failing start propagates, so the caller can report it in the UI', async 
     startManagedDaemon({ gladys, adminClientKey: 'k', saveAdminClientKey: async () => {} }),
     /image pull failed/,
   );
+});
+
+test('the daemon volumes are created writable, whoever the container runs as', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'olvid-volumes-'));
+
+  await prepareDaemonVolumes({ dataDir });
+
+  for (const volume of DAEMON_VOLUMES) {
+    const path = join(dataDir, DAEMON_CONTAINER_NAME, volume);
+    // The daemon writes its cryptographic seeds under <data>/security on the
+    // first start, and exits when it cannot: the folder must not belong to a
+    // user the container may not be.
+    assert.equal((await stat(path)).mode & 0o777, 0o777, `${volume} must be writable by all`);
+  }
+});
+
+test('a data folder that cannot be prepared never blocks the start', async () => {
+  const gladys = createFakeGladys();
+  // A regular file where a folder is expected: every mkdir under it fails.
+  const blocked = join(await mkdtemp(join(tmpdir(), 'olvid-')), 'not-a-folder');
+  await writeFile(blocked, '');
+
+  await prepareDaemonVolumes({ dataDir: blocked });
+  await startManagedDaemon({ gladys, adminClientKey: 'k', saveAdminClientKey: async () => {} });
+
+  assert.ok(gladys.calls.some((call) => call.method === 'startContainer'));
 });
 
 test('a stopped daemon container is named in the status, not just "unreachable"', async () => {

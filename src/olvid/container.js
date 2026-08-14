@@ -21,6 +21,8 @@
 // -----------------------------------------------------------------------------
 
 import { randomBytes } from 'node:crypto';
+import { chmod, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import { createLogger } from '@gladysassistant/integration-sdk';
 
@@ -39,6 +41,14 @@ export const MANAGED_DAEMON_URL = `http://${DAEMON_CONTAINER_NAME}:50051`;
 // environment variables; the suffix is only a label of the key.
 export const ADMIN_KEY_ENV = 'OLVID_ADMIN_CLIENT_KEY_GLADYS';
 
+// Volumes declared for the daemon in the manifest. The supervisor mounts each
+// one from a folder derived from the integration data folder, which the
+// integration itself may prepare beforehand — the documented pattern for a
+// sub-container is "write its files under /data/containers/<name>/…, then
+// start it".
+export const DAEMON_VOLUMES = ['/daemon/data', '/daemon/backups'];
+const CONTAINERS_DATA_DIR = '/data/containers';
+
 /**
  * @description Generate the admin client key of the managed daemon. 32 random
  * bytes, hex-encoded: the same shape as the `openssl rand -hex 32` the Olvid
@@ -50,6 +60,46 @@ export const ADMIN_KEY_ENV = 'OLVID_ADMIN_CLIENT_KEY_GLADYS';
  */
 export function generateAdminClientKey() {
   return randomBytes(32).toString('hex');
+}
+
+/**
+ * @description Create the folders the daemon volumes are mounted from, writable
+ * by whichever user the supervisor runs the container as.
+ *
+ * The daemon stores its cryptographic seeds in `<data dir>/security/`, created
+ * on the first start: when that `mkdir` fails it logs "Unable to init key
+ * management, exiting" and stops, which from the outside looks like a daemon
+ * that never comes up. A folder Docker creates on the fly belongs to root,
+ * while the container may well run as somebody else — so the integration
+ * creates them itself, in its own data folder, and opens the permissions
+ * rather than betting on a user id it does not know.
+ * @param {object} [options] - Options.
+ * @param {string} [options.dataDir] - Root of the sub-container data folders.
+ * @returns {Promise<void>} Always resolves: a failure here is not worth
+ * blocking a start that may well work anyway.
+ * @example
+ * await prepareDaemonVolumes();
+ */
+export async function prepareDaemonVolumes({ dataDir = CONTAINERS_DATA_DIR } = {}) {
+  for (const volume of DAEMON_VOLUMES) {
+    const path = join(dataDir, DAEMON_CONTAINER_NAME, volume);
+    try {
+      await mkdir(path, { recursive: true });
+      // Explicitly, because the mode of mkdir goes through the umask.
+      await chmod(path, 0o777);
+    } catch (e) {
+      if (e?.code === 'EPERM' || e?.code === 'EACCES') {
+        // The folder is already there and belongs to somebody else — a leftover
+        // of an earlier start, created by Docker as root. Nothing the
+        // integration can do about it from inside its own container.
+        logger.warn(
+          `The daemon folder ${path} exists and belongs to another user: the daemon may not be able to write in it. Delete it on the Gladys host to let the integration recreate it.`,
+        );
+      } else {
+        logger.warn(`Preparing the daemon folder ${path} failed`, e);
+      }
+    }
+  }
 }
 
 /**
@@ -75,6 +125,8 @@ export async function startManagedDaemon({ gladys, adminClientKey, saveAdminClie
     // be unreachable forever (the key only exists in its environment).
     await saveAdminClientKey(key);
   }
+
+  await prepareDaemonVolumes();
 
   logger.info(`Starting the managed Olvid daemon (${DAEMON_CONTAINER_NAME})`);
   await gladys.startContainer(DAEMON_CONTAINER_NAME, { env: { [ADMIN_KEY_ENV]: key } });
