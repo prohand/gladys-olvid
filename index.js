@@ -27,6 +27,7 @@ import { buildActions } from './src/actions.js';
 import { isConfigured, isManagedDaemon, normalizeConfig, requiresReconnect } from './src/config.js';
 import { handleIncomingMessage, refreshContactLanguages } from './src/messaging.js';
 import {
+  createDaemonContainerWatch,
   describeContainerError,
   startManagedDaemon,
   stopManagedDaemon,
@@ -48,7 +49,7 @@ const daemon = new OlvidDaemon({
   // Application-level status, shown in the Configuration screen. Distinct from
   // the container state machine: the integration can be RUNNING and still
   // unable to reach the Olvid daemon.
-  onConnectionChange: (connected, message) => gladys.setConnectionStatus(connected, message),
+  onConnectionChange: (connected, message) => reportConnectionStatus(connected, message),
   // The client key the integration minted for itself: stored in the config,
   // outside the manifest config_schema (free internal storage, never rendered).
   saveClientKey: (clientKey) => saveInternalConfig({ client_key: clientKey }),
@@ -81,6 +82,24 @@ function sessionConfig() {
     return { ...config, ...managedDaemon };
   }
   return config;
+}
+
+const watchDaemonContainer = createDaemonContainerWatch({ gladys });
+
+/**
+ * Report the connection status, explaining it by the state of the daemon
+ * container when Gladys is the one running it: "daemon unreachable" is a dead
+ * end for a user who cannot see that the container itself stopped.
+ * @param {boolean} connected - Whether the Olvid session is open.
+ * @param {object} [message] - Multi-language reason from the session.
+ * @returns {Promise<void>} Resolves once Gladys stored the status.
+ */
+async function reportConnectionStatus(connected, message) {
+  if (connected || !isManagedDaemon(config)) {
+    return gladys.setConnectionStatus(connected, message);
+  }
+  const containerMessage = await watchDaemonContainer();
+  return gladys.setConnectionStatus(false, containerMessage ?? message);
 }
 
 // --- Gladys -> Olvid: deliver a message in the channel ------------------------

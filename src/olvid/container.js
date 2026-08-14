@@ -100,6 +100,64 @@ export async function stopManagedDaemon(gladys) {
   }
 }
 
+// How often the state of the daemon container is checked while the session
+// cannot connect: often enough to be useful, rarely enough not to hammer the
+// host API on every retry.
+const STATE_CHECK_INTERVAL_MS = 30_000;
+
+/**
+ * @description Build the watcher that explains a failing connection by the
+ * state of the daemon container. "Olvid daemon unreachable" is a dead end when
+ * Gladys is the one running the daemon: the answer is whether the container is
+ * running at all, and the user cannot see that from the integration logs.
+ * @param {object} options - Collaborators.
+ * @param {object} options.gladys - The Gladys SDK instance.
+ * @param {Function} [options.now] - Clock, injectable for the tests.
+ * @param {number} [options.intervalMs] - Minimum delay between two checks.
+ * @returns {Function} `() => Promise<object|null>`, a message when the container is not running.
+ * @example
+ * const watchDaemonContainer = createDaemonContainerWatch({ gladys });
+ */
+export function createDaemonContainerWatch({
+  gladys,
+  now = Date.now,
+  intervalMs = STATE_CHECK_INTERVAL_MS,
+}) {
+  let checkedAt = 0;
+  let message = null;
+
+  return async function watchDaemonContainer() {
+    if (checkedAt && now() - checkedAt < intervalMs) {
+      return message;
+    }
+    checkedAt = now();
+    try {
+      const containers = await gladys.getContainers();
+      const container = (containers ?? []).find((entry) => entry.name === DAEMON_CONTAINER_NAME);
+      if (!container) {
+        message = null;
+        return message;
+      }
+      if (container.status === 'running') {
+        message = null;
+        return message;
+      }
+      // The exit reason is in the container logs, which the integration cannot
+      // read: point the user at them rather than paraphrasing a guess.
+      logger.error(`The Olvid daemon container is "${container.status}", not running`);
+      message = {
+        en: `The Olvid daemon container stopped (${container.status}). Check its logs in Gladys.`,
+        fr: `Le conteneur du démon Olvid s'est arrêté (${container.status}). Consultez ses logs dans Gladys.`,
+      };
+      return message;
+    } catch (e) {
+      logger.debug('Reading the state of the Olvid daemon container failed', e);
+      message = null;
+      return message;
+    }
+  };
+}
+
 /**
  * @description Turn a container-lifecycle failure into a message for the
  * Configuration screen. The two cases a user can act on are a Gladys too old

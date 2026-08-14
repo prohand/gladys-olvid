@@ -144,14 +144,15 @@ services:
 
 ## Dépannage
 
-| Symptôme                                    | Cause probable                                                                                                               |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| « Démarrage du démon Olvid… » qui persiste  | Le téléchargement de l'image est encore en cours, ou il a échoué : regardez les logs de l'intégration.                       |
-| « Démon Olvid injoignable »                 | Le démon n'a pas fini de démarrer (l'intégration réessaie toute seule). En mode « mon propre démon » : URL ou réseau Docker. |
-| `unauthenticated` au test de connexion      | Mode « mon propre démon » : la clé client admin ne correspond pas à celle du conteneur du démon.                             |
-| L'invitation reste bloquée                  | Le code à 4 chiffres n'a pas été échangé des deux côtés (actions « Invitations » et « Valider »).                            |
-| « Votre compte Olvid n'est pas encore lié » | Le code de liaison n'a pas été envoyé, ou il a expiré (15 minutes).                                                          |
-| Rien n'arrive après un redémarrage          | Les messages reçus hors ligne sont rejoués au démarrage ; vérifiez les logs de l'intégration.                                |
+| Symptôme                                     | Cause probable                                                                                                               |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| « Démarrage du démon Olvid… » qui persiste   | Le téléchargement de l'image est encore en cours, ou il a échoué : regardez les logs de l'intégration.                       |
+| « Le conteneur du démon Olvid s'est arrêté » | Le démon a quitté au démarrage : ses propres logs, dans Gladys, en donnent la raison.                                        |
+| « Démon Olvid injoignable »                  | Le démon n'a pas fini de démarrer (l'intégration réessaie toute seule). En mode « mon propre démon » : URL ou réseau Docker. |
+| `unauthenticated` au test de connexion       | Mode « mon propre démon » : la clé client admin ne correspond pas à celle du conteneur du démon.                             |
+| L'invitation reste bloquée                   | Le code à 4 chiffres n'a pas été échangé des deux côtés (actions « Invitations » et « Valider »).                            |
+| « Votre compte Olvid n'est pas encore lié »  | Le code de liaison n'a pas été envoyé, ou il a expiré (15 minutes).                                                          |
+| Rien n'arrive après un redémarrage           | Les messages reçus hors ligne sont rejoués au démarrage ; vérifiez les logs de l'intégration.                                |
 
 Les logs de l'intégration (`LOG_LEVEL=debug` pour le détail) indiquent chaque
 étape : provisionnement du profil, invitations, messages reçus.

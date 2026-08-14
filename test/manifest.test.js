@@ -113,12 +113,18 @@ test('the manifest declares the Olvid daemon the code starts', () => {
   assert.match(daemon.docker_image, /^olvid\/bot-daemon:\d+\.\d+\.\d+$/);
   // The admin key is computed at runtime and passed to startContainer: it can
   // never appear in the manifest, which is public.
-  assert.equal(daemon.env, undefined);
+  for (const key of Object.keys(daemon.env ?? {})) {
+    assert.ok(
+      !key.startsWith('OLVID_ADMIN_CLIENT_KEY'),
+      `"${key}" is a secret, not a manifest env`,
+    );
+  }
   // Started by the integration, precisely because of that key.
   assert.equal(daemon.start, 'manual');
-  // The Olvid identity lives in that volume: without it, every restart would
-  // create a new profile and lose the contacts.
-  assert.deepEqual(daemon.volumes, ['/daemon/data']);
+  // The Olvid identity lives in those volumes: without them, every restart
+  // would create a new profile and lose the contacts. `/daemon/backups` is
+  // written by the daemon on its own, and holds a copy of that identity.
+  assert.deepEqual(daemon.volumes, ['/daemon/data', '/daemon/backups']);
   // No published port: the gRPC API is admin-level, it stays on the private
   // network of the integration.
   assert.equal(daemon.ports, undefined);

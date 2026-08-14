@@ -143,6 +143,7 @@ services:
 | Symptom                                  | Likely cause                                                                                                            |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | "Starting the Olvid daemon…" that stays  | The image download is still running, or it failed: check the integration logs.                                          |
+| "The Olvid daemon container stopped"     | The daemon exited at startup: its own logs, in Gladys, give the reason.                                                 |
 | "Olvid daemon unreachable"               | The daemon has not finished starting (the integration retries on its own). With your own daemon: URL or Docker network. |
 | `unauthenticated` on the connection test | With your own daemon: the admin client key does not match the one of the daemon container.                              |
 | The invitation stays stuck               | The 4-digit code was not exchanged both ways (the "Invitations" and "Validate" actions).                                |

@@ -13,6 +13,7 @@ import {
   ADMIN_KEY_ENV,
   DAEMON_CONTAINER_NAME,
   MANAGED_DAEMON_URL,
+  createDaemonContainerWatch,
   describeContainerError,
   generateAdminClientKey,
   startManagedDaemon,
@@ -93,6 +94,54 @@ test('a failing start propagates, so the caller can report it in the UI', async 
     startManagedDaemon({ gladys, adminClientKey: 'k', saveAdminClientKey: async () => {} }),
     /image pull failed/,
   );
+});
+
+test('a stopped daemon container is named in the status, not just "unreachable"', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'exited' }];
+  const watch = createDaemonContainerWatch({ gladys });
+
+  const message = await watch();
+
+  assert.match(message.en, /exited/);
+  assert.match(message.fr, /logs/);
+});
+
+test('a running daemon container explains nothing: the reason is elsewhere', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'running' }];
+
+  assert.equal(await createDaemonContainerWatch({ gladys })(), null);
+});
+
+test('the container state is not re-read on every retry', async () => {
+  const gladys = createFakeGladys();
+  let reads = 0;
+  gladys.getContainers = async () => {
+    reads += 1;
+    return [{ name: DAEMON_CONTAINER_NAME, status: 'exited' }];
+  };
+  let clock = 1_000;
+  const watch = createDaemonContainerWatch({ gladys, now: () => clock, intervalMs: 30_000 });
+
+  await watch();
+  clock += 5_000;
+  const cached = await watch();
+  assert.equal(reads, 1, 'a retry every 5 s must not read the state every 5 s');
+  assert.match(cached.en, /exited/, 'the known state is still reported meanwhile');
+
+  clock += 30_000;
+  await watch();
+  assert.equal(reads, 2);
+});
+
+test('a host API that cannot answer never hides the connection error', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => {
+    throw apiError(500, 'host API down');
+  };
+
+  assert.equal(await createDaemonContainerWatch({ gladys })(), null);
 });
 
 test('describeContainerError names the two situations a user can act on', () => {
