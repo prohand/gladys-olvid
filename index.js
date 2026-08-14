@@ -10,7 +10,8 @@
 // Olvid logic (that lives in src/olvid/) and no routing logic (src/messaging.js):
 //   1. instantiates the SDK (connection, auth, reconnection: handled for you);
 //   2. registers the event handlers BEFORE connect();
-//   3. opens the Olvid session once connected, and keeps it in sync with the
+//   3. starts the Olvid daemon Gladys runs itself (src/olvid/container.js),
+//      opens the Olvid session once connected, and keeps both in sync with the
 //      configuration.
 //
 // Environment variables provided by the Gladys supervisor to the container:
@@ -23,8 +24,13 @@
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
 
 import { buildActions } from './src/actions.js';
-import { isConfigured, normalizeConfig, requiresReconnect } from './src/config.js';
+import { isConfigured, isManagedDaemon, normalizeConfig, requiresReconnect } from './src/config.js';
 import { handleIncomingMessage, refreshContactLanguages } from './src/messaging.js';
+import {
+  describeContainerError,
+  startManagedDaemon,
+  stopManagedDaemon,
+} from './src/olvid/container.js';
 import { OlvidDaemon } from './src/olvid/daemon.js';
 
 const gladys = new GladysIntegration();
@@ -45,11 +51,20 @@ const daemon = new OlvidDaemon({
   onConnectionChange: (connected, message) => gladys.setConnectionStatus(connected, message),
   // The client key the integration minted for itself: stored in the config,
   // outside the manifest config_schema (free internal storage, never rendered).
-  saveClientKey: async (clientKey) => {
-    config = { ...config, client_key: clientKey };
-    await gladys.setConfig({ client_key: clientKey });
-  },
+  saveClientKey: (clientKey) => saveInternalConfig({ client_key: clientKey }),
 });
+
+/**
+ * Persist a value the integration owns (never rendered in the Configuration
+ * screen), keeping the in-memory config in sync so a reconnection reuses it
+ * without a round trip.
+ * @param {Record<string, string>} patch - Internal keys to store.
+ * @returns {Promise<void>} Resolves once Gladys stored them.
+ */
+async function saveInternalConfig(patch) {
+  config = { ...config, ...patch };
+  await gladys.setConfig(patch);
+}
 
 // --- Gladys -> Olvid: deliver a message in the channel ------------------------
 // `contact` is the identity resolved by Gladys ({ id }, our Olvid contact id),
@@ -109,17 +124,48 @@ gladys.on('disconnected', () => {
   logger.info('Disconnected from Gladys, keeping the Olvid session open');
 });
 
+// Opens the Olvid session, starting the daemon first when Gladys is the one
+// running it. In managed mode there is nothing to configure: the address is the
+// DNS alias of the sub-container and the admin key is generated on first run —
+// the user never opens a terminal.
 async function startOlvidSession() {
   if (!isConfigured(config)) {
-    logger.warn('Olvid is not configured yet: fill in the daemon URL and the admin client key');
+    logger.warn('External daemon selected but not configured: fill in the URL and the admin key');
     await daemon.stop();
     await gladys.setConnectionStatus(false, {
-      en: 'Configuration needed: daemon URL and admin client key.',
-      fr: 'Configuration requise : URL du démon et clé client admin.',
+      en: 'Configuration needed: URL and admin client key of your Olvid daemon.',
+      fr: 'Configuration requise : URL et clé client admin de votre démon Olvid.',
     });
     return;
   }
-  await daemon.start(config);
+
+  let session = config;
+  if (isManagedDaemon(config)) {
+    try {
+      await gladys.setConnectionStatus(false, {
+        en: 'Starting the Olvid daemon…',
+        fr: 'Démarrage du démon Olvid…',
+      });
+      const managed = await startManagedDaemon({
+        gladys,
+        adminClientKey: config.managed_admin_client_key,
+        saveAdminClientKey: (key) => saveInternalConfig({ managed_admin_client_key: key }),
+      });
+      session = { ...config, ...managed };
+    } catch (e) {
+      logger.error('Starting the managed Olvid daemon failed', e);
+      await daemon.stop();
+      await gladys.setConnectionStatus(false, describeContainerError(e)).catch(() => {});
+      return;
+    }
+  } else {
+    // The user brought their own daemon: make sure ours is not running too.
+    await stopManagedDaemon(gladys);
+  }
+
+  // The daemon container is up, but its gRPC API needs a few seconds to answer:
+  // the session retries on its own with a backoff, no need to poll here.
+  await daemon.start(session);
 }
 
 // --- Graceful shutdown ----------------------------------------------------------

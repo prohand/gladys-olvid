@@ -12,72 +12,53 @@ Olvid has no cloud bot API: there is no equivalent of Telegram's BotFather. An
 Olvid bot is made of two halves:
 
 - the **Olvid daemon** (`olvid/bot-daemon`): a complete Olvid client embedding
-  the cryptographic engine and holding your profile, exposing a gRPC API. You
-  run it at home, next to Gladys;
+  the cryptographic engine and holding your profile, exposing a gRPC API;
 - the **bot**: this integration. It drives the daemon, relays messages to
   Gladys and sends the answers back.
 
+**Gladys runs the daemon for you**: it is declared in the integration manifest,
+so the Gladys supervisor starts it in its own container, on the integration's
+private network. No `docker-compose` file to write, no command line to type, no
+key to copy around.
+
 No extra third-party service sees your messages: the daemon is an Olvid client,
-just like your phone.
+just like your phone, and its gRPC API is published on no port at all — only the
+integration can talk to it.
 
-## 1. Start the Olvid daemon
+## 1. Install the integration
 
-On the machine running Gladys, create an `olvid/` folder with this
-`docker-compose.yml`:
+Install the Olvid integration from the Gladys store. The install screen tells
+you what it runs besides itself (`olvid/bot-daemon`, its memory limit, and the
+fact that no port is published): that is the contract you accept.
 
-```yaml
-services:
-  olvid-daemon:
-    image: olvid/bot-daemon:2.0.1
-    container_name: olvid-daemon
-    restart: unless-stopped
-    environment:
-      # Pick a long random value: this is the key you will paste into Gladys.
-      # It grants full control over the daemon.
-      - OLVID_ADMIN_CLIENT_KEY_GLADYS=replace-me-with-a-random-value
-    volumes:
-      - ./daemon-data:/daemon/data
-    networks:
-      - gladys
-networks:
-  gladys:
-    external: true
-```
+On the first run, with nothing to fill in, the integration:
 
-The Docker network must be **the one Gladys uses** (`external: true` above):
-that is what lets the integration container reach the daemon by its name,
-`olvid-daemon`. If the two containers share no network, publish port 50051 and
-use the host IP address instead.
+1. generates the admin key of the daemon (you never see nor type it) and starts
+   the daemon container;
+2. creates a personal Olvid profile, since the daemon is empty;
+3. mints its own client key, scoped to that profile (the admin key is only used
+   for that);
+4. enables automatic acceptance of incoming invitations.
 
-Generate a random key, then start it:
+Starting the daemon takes a few tens of seconds the first time (image download
+included): the integration status goes from "Starting the Olvid daemon…" to
+connected on its own. Click **Test the connection** to check it: Gladys answers
+with the daemon version and the profile name.
 
-```bash
-openssl rand -hex 32          # the value for OLVID_ADMIN_CLIENT_KEY_GLADYS
-docker compose up -d olvid-daemon
-```
-
-> The daemon stores its profile and messages in `./daemon-data`. Back that
-> folder up: it is your Olvid identity.
-
-## 2. Configure the integration in Gladys
-
-Install the Olvid integration in Gladys, then fill in:
+You can then adjust, if you want to:
 
 | Field             | Value                                                |
 | ----------------- | ---------------------------------------------------- |
-| Olvid daemon URL  | `http://olvid-daemon:50051`                          |
-| Admin client key  | the value of `OLVID_ADMIN_CLIENT_KEY_GLADYS`         |
-| Profile number    | `0` (Gladys takes the first profile, or creates one) |
 | First / last name | the name shown to your contacts ("Gladys Assistant") |
+| Profile number    | `0` (Gladys takes the first profile, or creates one) |
 
-Save, then click **Test the connection**. Gladys should answer with the daemon
-version and the profile name. On the first run, the integration:
+> Your **Olvid identity** (profile, contacts, messages) lives in the volume of
+> the daemon container, managed by Gladys along with the integration data.
+> Uninstalling the integration destroys that profile: your contacts will have to
+> invite you again. Keep that in mind before uninstalling, and back your Gladys
+> data up as usual.
 
-1. creates a personal Olvid profile when the daemon is empty;
-2. mints its own client key (the admin key is only used for that);
-3. enables automatic acceptance of incoming invitations.
-
-## 3. Add Gladys to your Olvid contacts
+## 2. Add Gladys to your Olvid contacts
 
 This is the regular Olvid journey for an individual: an invitation, then a
 4-digit code exchanged between the two devices. Olvid never automates that
@@ -97,7 +78,7 @@ step — it is what proves you are really talking to your own home.
 
 Once the exchange completes, "Gladys Assistant" appears in your Olvid contacts.
 
-## 4. Link your Olvid account to your Gladys user
+## 3. Link your Olvid account to your Gladys user
 
 Being a contact is not enough: Gladys has to know **which user** is speaking,
 since an incoming message drives the home with that user's rights.
@@ -122,15 +103,51 @@ page.
 **Group** discussions are deliberately ignored: an incoming message speaks with
 the authority of the linked user, which only makes sense one-to-one.
 
+## Using your own daemon (advanced)
+
+If you **already** run an Olvid daemon — because you use it for other bots, or
+because you want to control its version and its backups — switch the **Olvid
+daemon** field to "My own daemon", then fill in:
+
+| Field            | Value                                        |
+| ---------------- | -------------------------------------------- |
+| Olvid daemon URL | `http://olvid-daemon:50051`                  |
+| Admin client key | the value of `OLVID_ADMIN_CLIENT_KEY_GLADYS` |
+
+Gladys then stops the daemon it managed, so two Olvid clients never run in
+parallel. The daemon must be reachable from the integration container: share a
+Docker network (the container is then reachable by its name), or publish port
+50051 and use the host IP address.
+
+A minimal `docker-compose.yml` for that case:
+
+```yaml
+services:
+  olvid-daemon:
+    image: olvid/bot-daemon:2.0.1
+    container_name: olvid-daemon
+    restart: unless-stopped
+    environment:
+      # A long random value (openssl rand -hex 32): this is the key you paste
+      # into Gladys. It grants full control over the daemon.
+      - OLVID_ADMIN_CLIENT_KEY_GLADYS=replace-me-with-a-random-value
+    volumes:
+      - ./daemon-data:/daemon/data
+```
+
+> In that mode the Olvid identity lives in your `./daemon-data` folder: backing
+> it up is up to you.
+
 ## Troubleshooting
 
-| Symptom                                  | Likely cause                                                                             |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| "Olvid daemon unreachable"               | The container is not running, or the two containers share no Docker network.             |
-| `unauthenticated` on the connection test | The admin client key does not match the one of the daemon container.                     |
-| The invitation stays stuck               | The 4-digit code was not exchanged both ways (the "Invitations" and "Validate" actions). |
-| "Your Olvid account is not linked yet"   | The linking code was never sent, or it expired (15 minutes).                             |
-| Nothing arrives after a restart          | Messages received while offline are replayed on startup; check the integration logs.     |
+| Symptom                                  | Likely cause                                                                                                            |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| "Starting the Olvid daemon…" that stays  | The image download is still running, or it failed: check the integration logs.                                          |
+| "Olvid daemon unreachable"               | The daemon has not finished starting (the integration retries on its own). With your own daemon: URL or Docker network. |
+| `unauthenticated` on the connection test | With your own daemon: the admin client key does not match the one of the daemon container.                              |
+| The invitation stays stuck               | The 4-digit code was not exchanged both ways (the "Invitations" and "Validate" actions).                                |
+| "Your Olvid account is not linked yet"   | The linking code was never sent, or it expired (15 minutes).                                                            |
+| Nothing arrives after a restart          | Messages received while offline are replayed on startup; check the integration logs.                                    |
 
 The integration logs (`LOG_LEVEL=debug` for details) show every step: profile
 provisioning, invitations, incoming messages.

@@ -1,0 +1,124 @@
+// -----------------------------------------------------------------------------
+// The Olvid daemon, run BY Gladys as a sub-container.
+//
+// An Olvid bot needs a daemon (a full Olvid client holding the profile), and
+// asking the user to write a docker-compose file over SSH is the one step of
+// the setup that cannot be done from the Gladys web UI. The platform has an
+// answer for that: the manifest `containers` field declares — publicly, and
+// shown to the user on the install screen — which extra image the integration
+// may run, with which limits; the supervisor then creates it on the private
+// network of the integration, and the integration drives its lifecycle through
+// the host API (`startContainer` / `stopContainer`).
+//
+// What this module owns:
+//   - the admin client key: GENERATED here, stored in the integration's own
+//     config, never typed nor read by the user (the manifest is public, so a
+//     secret can only travel through the runtime `env` of startContainer);
+//   - the lifecycle calls themselves.
+//
+// The gRPC session (provisioning, messaging, invitations) stays in daemon.js:
+// this module only makes sure something is listening at the other end.
+// -----------------------------------------------------------------------------
+
+import { randomBytes } from 'node:crypto';
+
+import { createLogger } from '@gladysassistant/integration-sdk';
+
+const logger = createLogger({ name: 'olvid-container' });
+
+// Name declared in the manifest `containers` — it is also the DNS alias of the
+// container on the private network of the integration.
+export const DAEMON_CONTAINER_NAME = 'olvid-daemon';
+
+// Where the integration reaches the managed daemon. The manifest declares NO
+// published port: the gRPC API (which the admin key fully controls) is not
+// exposed on the LAN, only the integration can talk to it.
+export const MANAGED_DAEMON_URL = `http://${DAEMON_CONTAINER_NAME}:50051`;
+
+// The daemon reads its admin keys from the `OLVID_ADMIN_CLIENT_KEY_<NAME>`
+// environment variables; the suffix is only a label of the key.
+export const ADMIN_KEY_ENV = 'OLVID_ADMIN_CLIENT_KEY_GLADYS';
+
+/**
+ * @description Generate the admin client key of the managed daemon. 32 random
+ * bytes, hex-encoded: the same shape as the `openssl rand -hex 32` the Olvid
+ * documentation suggests, so a user who later inspects the container sees a
+ * familiar value.
+ * @returns {string} A fresh admin client key.
+ * @example
+ * const key = generateAdminClientKey();
+ */
+export function generateAdminClientKey() {
+  return randomBytes(32).toString('hex');
+}
+
+/**
+ * @description Make sure the managed Olvid daemon is running, and return the
+ * settings the gRPC session needs to reach it. Idempotent: the same admin key
+ * is passed on every call, so the supervisor keeps the existing container
+ * (a different `env` would make it recreate the container — and the Olvid
+ * profile lives in a volume, not in the container, so even that stays safe).
+ * @param {object} options - Collaborators.
+ * @param {object} options.gladys - The Gladys SDK instance.
+ * @param {string} [options.adminClientKey] - Key generated on a previous run.
+ * @param {Function} options.saveAdminClientKey - `(key) => Promise`, persists a freshly generated key.
+ * @returns {Promise<{daemon_url: string, admin_client_key: string}>} Settings of the managed daemon.
+ * @example
+ * const managed = await startManagedDaemon({ gladys, adminClientKey, saveAdminClientKey });
+ */
+export async function startManagedDaemon({ gladys, adminClientKey, saveAdminClientKey }) {
+  let key = String(adminClientKey ?? '').trim();
+  if (!key) {
+    logger.info('First run: generating the admin client key of the Olvid daemon');
+    key = generateAdminClientKey();
+    // Persist BEFORE starting: a container started with a key we forgot would
+    // be unreachable forever (the key only exists in its environment).
+    await saveAdminClientKey(key);
+  }
+
+  logger.info(`Starting the managed Olvid daemon (${DAEMON_CONTAINER_NAME})`);
+  await gladys.startContainer(DAEMON_CONTAINER_NAME, { env: { [ADMIN_KEY_ENV]: key } });
+
+  return { daemon_url: MANAGED_DAEMON_URL, admin_client_key: key };
+}
+
+/**
+ * @description Stop the managed daemon — used when the user switches to their
+ * own daemon, so two Olvid clients never run for the same integration. Best
+ * effort: a daemon that was never started is not an error.
+ * @param {object} gladys - The Gladys SDK instance.
+ * @returns {Promise<void>} Always resolves.
+ * @example
+ * await stopManagedDaemon(gladys);
+ */
+export async function stopManagedDaemon(gladys) {
+  try {
+    await gladys.stopContainer(DAEMON_CONTAINER_NAME);
+    logger.info('Managed Olvid daemon stopped: an external daemon is configured');
+  } catch (e) {
+    logger.debug('No managed Olvid daemon to stop', e);
+  }
+}
+
+/**
+ * @description Turn a container-lifecycle failure into a message for the
+ * Configuration screen. The two cases a user can act on are a Gladys too old
+ * to run sub-containers and an image that could not be pulled.
+ * @param {Error} error - Error thrown by the host API.
+ * @returns {{en: string, fr: string}} Multi-language status message.
+ * @example
+ * await gladys.setConnectionStatus(false, describeContainerError(e));
+ */
+export function describeContainerError(error) {
+  const reason = error?.message ?? 'unknown error';
+  if (error?.status === 404) {
+    return {
+      en: `The Olvid daemon container is unknown to this Gladys (${reason}). Update Gladys, or switch the daemon to "an existing daemon of mine".`,
+      fr: `Le conteneur du démon Olvid est inconnu de ce Gladys (${reason}). Mettez Gladys à jour, ou basculez le démon sur « un démon existant à moi ».`,
+    };
+  }
+  return {
+    en: `Starting the Olvid daemon failed: ${reason}`,
+    fr: `Le démarrage du démon Olvid a échoué : ${reason}`,
+  };
+}

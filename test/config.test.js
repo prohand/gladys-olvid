@@ -2,9 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  DAEMON_MODES,
   DEFAULT_CONFIG,
   INTERNAL_CONFIG_KEYS,
   isConfigured,
+  isManagedDaemon,
   normalizeConfig,
   requiresReconnect,
 } from '../src/config.js';
@@ -21,10 +23,12 @@ test('normalizeConfig returns the defaults, plus the internal keys', () => {
 
 test('normalizeConfig keeps user values over the defaults', () => {
   const config = normalizeConfig({
+    daemon_mode: DAEMON_MODES.EXTERNAL,
     daemon_url: 'https://olvid.lan:50051',
     admin_client_key: 'secret',
     identity_id: 2,
   });
+  assert.equal(config.daemon_mode, DAEMON_MODES.EXTERNAL);
   assert.equal(config.daemon_url, 'https://olvid.lan:50051');
   assert.equal(config.admin_client_key, 'secret');
   assert.equal(config.identity_id, 2);
@@ -48,10 +52,24 @@ test('auto_accept_invitations defaults to true and only an explicit false disabl
   assert.equal(normalizeConfig({ auto_accept_invitations: true }).auto_accept_invitations, true);
 });
 
-test('isConfigured requires the daemon URL and the admin key', () => {
-  assert.equal(isConfigured(normalizeConfig()), false);
-  assert.equal(isConfigured(normalizeConfig({ admin_client_key: 'k' })), true);
-  assert.equal(isConfigured(normalizeConfig({ admin_client_key: 'k', daemon_url: '' })), false);
+test('the daemon is managed by Gladys unless the user explicitly says otherwise', () => {
+  assert.equal(normalizeConfig().daemon_mode, DAEMON_MODES.MANAGED);
+  assert.equal(isManagedDaemon(normalizeConfig()), true);
+  assert.equal(isManagedDaemon(normalizeConfig({ daemon_mode: 'external' })), false);
+  // An unknown value is not a reason to stop working: fall back to managed.
+  assert.equal(isManagedDaemon(normalizeConfig({ daemon_mode: 'whatever' })), true);
+});
+
+test('a managed daemon needs no configuration at all', () => {
+  assert.equal(isConfigured(normalizeConfig()), true);
+});
+
+test('an external daemon requires its URL and its admin key', () => {
+  const external = (raw) => isConfigured(normalizeConfig({ daemon_mode: 'external', ...raw }));
+  assert.equal(external({}), false);
+  assert.equal(external({ daemon_url: 'http://olvid-daemon:50051' }), false);
+  assert.equal(external({ admin_client_key: 'k' }), false);
+  assert.equal(external({ daemon_url: 'http://olvid-daemon:50051', admin_client_key: 'k' }), true);
 });
 
 test('requiresReconnect only fires on the keys that define the session', () => {
@@ -61,10 +79,24 @@ test('requiresReconnect only fires on the keys that define the session', () => {
     requiresReconnect(base, normalizeConfig({ admin_client_key: 'k', identity_id: 4 })),
     true,
   );
+  // Switching who runs the daemon is a different daemon: rebuild the session.
+  assert.equal(
+    requiresReconnect(base, normalizeConfig({ admin_client_key: 'k', daemon_mode: 'external' })),
+    true,
+  );
   assert.equal(
     requiresReconnect(
       base,
       normalizeConfig({ admin_client_key: 'k', profile_first_name: 'Maison' }),
+    ),
+    false,
+  );
+  // The generated admin key lands in the config on the first run: reconnecting
+  // there would restart the session we are precisely in the middle of opening.
+  assert.equal(
+    requiresReconnect(
+      base,
+      normalizeConfig({ admin_client_key: 'k', managed_admin_client_key: 'generated' }),
     ),
     false,
   );
