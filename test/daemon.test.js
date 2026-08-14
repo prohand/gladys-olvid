@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeConfig } from '../src/config.js';
-import { OlvidDaemon, describeOlvidError } from '../src/olvid/daemon.js';
+import { OlvidDaemon, describeOlvidError, reconnectDelay } from '../src/olvid/daemon.js';
 import { encodeContactKey } from '../src/olvid/identifiers.js';
 import { createFakeOlvid, fakeContact } from './helpers/fakeOlvid.js';
 
@@ -70,6 +70,36 @@ test('turning automatic acceptance off is pushed to the Olvid profile', async ()
     'key-gladys-assistant-1',
     'the minted key survives a configuration update',
   );
+
+  await daemon.stop();
+});
+
+test('reconnection retries steadily while the daemon boots, then backs off', async () => {
+  // A daemon Gladys just started answers "unavailable" for a while: the first
+  // minute of retries stays short, so the user does not wait minutes for a
+  // daemon that came up in thirty seconds.
+  assert.equal(reconnectDelay(1), 5_000);
+  assert.equal(reconnectDelay(12), 5_000);
+  // Past that, a failure looks durable: back off, up to the five-minute cap.
+  assert.equal(reconnectDelay(13), 10_000);
+  assert.equal(reconnectDelay(14), 20_000);
+  assert.equal(reconnectDelay(19), 300_000);
+  assert.equal(reconnectDelay(500), 300_000);
+});
+
+test('a configuration update never drops the daemon the session is talking to', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon } = build(olvid);
+  // The managed daemon: its address and admin key are resolved when Gladys
+  // starts the container, not typed by the user — so they are absent from the
+  // configuration the Configuration screen sends back.
+  await daemon.start(config({ daemon_url: 'http://olvid-daemon:50051' }));
+
+  await daemon.updateSettings(normalizeConfig({ profile_first_name: 'Maison' }));
+
+  assert.equal(daemon.config.daemon_url, 'http://olvid-daemon:50051');
+  assert.equal(daemon.config.admin_client_key, 'admin-key');
+  assert.equal(daemon.config.profile_first_name, 'Maison');
 
   await daemon.stop();
 });

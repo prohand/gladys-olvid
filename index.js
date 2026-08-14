@@ -66,6 +66,23 @@ async function saveInternalConfig(patch) {
   await gladys.setConfig(patch);
 }
 
+// Address and admin key of the daemon Gladys runs itself, resolved when it is
+// started. They are NOT in `config`: the managed daemon has nothing the user
+// fills in, so the Configuration screen knows nothing about them.
+let managedDaemon = null;
+
+/**
+ * The configuration as the Olvid session sees it: the user's values, plus the
+ * connection settings of the managed daemon when Gladys is the one running it.
+ * @returns {Record<string, unknown>} Configuration of the session.
+ */
+function sessionConfig() {
+  if (isManagedDaemon(config) && managedDaemon) {
+    return { ...config, ...managedDaemon };
+  }
+  return config;
+}
+
 // --- Gladys -> Olvid: deliver a message in the channel ------------------------
 // `contact` is the identity resolved by Gladys ({ id }, our Olvid contact id),
 // `message` is `{ text, file }`. Throwing acks the command as failed.
@@ -89,9 +106,11 @@ gladys.onConfigUpdated(async (newConfig) => {
     await startOlvidSession();
     return;
   }
-  // Same session, new preferences: push them to the Olvid profile.
+  // Same session, new preferences: push them to the Olvid profile. The session
+  // config, not the raw one — the daemon we manage is not in there, and this
+  // handler also fires on the keys the integration stores by itself.
   try {
-    await daemon.updateSettings(config);
+    await daemon.updateSettings(sessionConfig());
   } catch (e) {
     logger.error('Applying the new configuration to the Olvid profile failed', e);
   }
@@ -139,33 +158,33 @@ async function startOlvidSession() {
     return;
   }
 
-  let session = config;
   if (isManagedDaemon(config)) {
     try {
       await gladys.setConnectionStatus(false, {
         en: 'Starting the Olvid daemon…',
         fr: 'Démarrage du démon Olvid…',
       });
-      const managed = await startManagedDaemon({
+      managedDaemon = await startManagedDaemon({
         gladys,
         adminClientKey: config.managed_admin_client_key,
         saveAdminClientKey: (key) => saveInternalConfig({ managed_admin_client_key: key }),
       });
-      session = { ...config, ...managed };
     } catch (e) {
       logger.error('Starting the managed Olvid daemon failed', e);
+      managedDaemon = null;
       await daemon.stop();
       await gladys.setConnectionStatus(false, describeContainerError(e)).catch(() => {});
       return;
     }
   } else {
     // The user brought their own daemon: make sure ours is not running too.
+    managedDaemon = null;
     await stopManagedDaemon(gladys);
   }
 
   // The daemon container is up, but its gRPC API needs a few seconds to answer:
   // the session retries on its own with a backoff, no need to poll here.
-  await daemon.start(session);
+  await daemon.start(sessionConfig());
 }
 
 // --- Graceful shutdown ----------------------------------------------------------
