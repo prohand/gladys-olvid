@@ -10,10 +10,7 @@
   "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.2",
   "gladys_version": ">=4.86.0",
   "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
-  "categories": [
-    "notifications",
-    "assistants"
-  ],
+  "categories": ["notifications"],
   "messaging": {
     "receive": true
   },
@@ -25,10 +22,7 @@
       "env": {
         "JAVA_FLAGS": "-Xmx512m -Djava.io.tmpdir=/daemon/data/tmp -Dorg.sqlite.tmpdir=/daemon/data/tmp"
       },
-      "volumes": [
-        "/daemon/data",
-        "/daemon/backups"
-      ],
+      "volumes": ["/daemon/data", "/daemon/backups"],
       "read_only": false,
       "memory_mb": 2048,
       "cpu": 1
