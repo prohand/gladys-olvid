@@ -1,6 +1,6 @@
 {
   "name": "gladys-olvid",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Olvid communication channel for Gladys Assistant: chat with your home from Olvid, the end-to-end encrypted messenger.",
   "type": "module",
