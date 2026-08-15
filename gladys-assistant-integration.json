@@ -6,11 +6,13 @@
     "en": "Chat with your home from Olvid, the end-to-end encrypted messenger (personal profile).",
     "fr": "Discutez avec votre maison depuis Olvid, la messagerie chiffrée de bout en bout."
   },
-  "version": "1.0.2",
-  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.2",
+  "version": "1.0.3",
+  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.3",
   "gladys_version": ">=4.86.0",
   "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
-  "categories": ["notifications"],
+  "categories": [
+    "notifications"
+  ],
   "messaging": {
     "receive": true
   },
@@ -22,7 +24,10 @@
       "env": {
         "JAVA_FLAGS": "-Xmx512m -Djava.io.tmpdir=/daemon/data/tmp -Dorg.sqlite.tmpdir=/daemon/data/tmp"
       },
-      "volumes": ["/daemon/data", "/daemon/backups"],
+      "volumes": [
+        "/daemon/data",
+        "/daemon/backups"
+      ],
       "read_only": false,
       "memory_mb": 2048,
       "cpu": 1
