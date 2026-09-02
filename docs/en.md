@@ -140,15 +140,16 @@ services:
 
 ## Troubleshooting
 
-| Symptom                                  | Likely cause                                                                                                            |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| "Starting the Olvid daemon…" that stays  | The image download is still running, or it failed: check the integration logs.                                          |
-| "The Olvid daemon container stopped"     | The daemon exited at startup: its own logs, in Gladys, give the reason.                                                 |
-| "Olvid daemon unreachable"               | The daemon has not finished starting (the integration retries on its own). With your own daemon: URL or Docker network. |
-| `unauthenticated` on the connection test | With your own daemon: the admin client key does not match the one of the daemon container.                              |
-| The invitation stays stuck               | The 4-digit code was not exchanged both ways (the "Invitations" and "Validate" actions).                                |
-| "Your Olvid account is not linked yet"   | The linking code was never sent, or it expired (15 minutes).                                                            |
-| Nothing arrives after a restart          | Messages received while offline are replayed on startup; check the integration logs.                                    |
+| Symptom                                            | Likely cause                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Starting the Olvid daemon…" that stays            | The image download is still running, or it failed: check the integration logs.                                                                                                        |
+| "The Olvid daemon container stopped"               | The daemon exited at startup: its own logs, in Gladys, give the reason.                                                                                                               |
+| "Olvid daemon unreachable"                         | The daemon has not finished starting (the integration retries on its own). With your own daemon: URL or Docker network.                                                               |
+| `unauthenticated` on the connection test           | With your own daemon: the admin client key does not match the one of the daemon container.                                                                                            |
+| The invitation stays stuck                         | The 4-digit code was not exchanged both ways (the "Invitations" and "Validate" actions).                                                                                              |
+| "Your Olvid account is not linked yet"             | The linking code was never sent, or it expired (15 minutes).                                                                                                                          |
+| Nothing arrives after a restart                    | Messages received while offline are replayed on startup; check the integration logs.                                                                                                  |
+| "Connection to the Olvid daemon lost" now and then | The daemon container restarted: the integration notices at once, starts it back up when needed and reconnects within seconds. Why it stopped is in the `olvid-daemon` container logs. |
 
 The integration logs (`LOG_LEVEL=debug` for details) show every step: profile
 provisioning, invitations, incoming messages.

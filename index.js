@@ -84,7 +84,22 @@ function sessionConfig() {
   return config;
 }
 
-const watchDaemonContainer = createDaemonContainerWatch({ gladys });
+// Start the managed daemon back up, for the watcher below. The admin key is the
+// one already stored: a daemon restarted with a different key would refuse the
+// session, and generating one here would be a bug — hence `saveAdminClientKey`
+// only being reachable through the normal start path.
+async function restartManagedDaemon() {
+  managedDaemon = await startManagedDaemon({
+    gladys,
+    adminClientKey: config.managed_admin_client_key,
+    saveAdminClientKey: (key) => saveInternalConfig({ managed_admin_client_key: key }),
+  });
+}
+
+const watchDaemonContainer = createDaemonContainerWatch({
+  gladys,
+  restartDaemon: restartManagedDaemon,
+});
 
 /**
  * Report the connection status, explaining it by the state of the daemon

@@ -171,26 +171,62 @@ export async function stopManagedDaemon(gladys) {
 // host API on every retry.
 const STATE_CHECK_INTERVAL_MS = 30_000;
 
+// Minimum delay between two attempts to start the daemon container back up. The
+// supervisor restarts a container that crashes, so this is only the safety net
+// for a daemon that stayed down — no reason to race the supervisor.
+const RESTART_INTERVAL_MS = 60_000;
+
+// Container states the daemon can be brought back from with a start. "restarting"
+// and "created" are transient states the supervisor is already driving, and a
+// paused container is not something a start would fix.
+const RESTARTABLE_STATUSES = new Set(['stopped', 'exited', 'dead']);
+
 /**
- * @description Build the watcher that explains a failing connection by the
- * state of the daemon container. "Olvid daemon unreachable" is a dead end when
- * Gladys is the one running the daemon: the answer is whether the container is
- * running at all, and the user cannot see that from the integration logs.
+ * @description Build the watcher that explains — and repairs — a failing
+ * connection when Gladys is the one running the daemon. "Olvid daemon
+ * unreachable" is a dead end for a user who cannot see that the container
+ * itself stopped, so the state of the container is read and reported; and when
+ * it is down, it is started back up rather than waited for: the supervisor
+ * restarts a container that crashes, but a daemon that stayed stopped would
+ * otherwise leave the integration retrying a gRPC address nothing listens on.
  * @param {object} options - Collaborators.
  * @param {object} options.gladys - The Gladys SDK instance.
+ * @param {Function} [options.restartDaemon] - `() => Promise`, starts the managed daemon back up.
  * @param {Function} [options.now] - Clock, injectable for the tests.
  * @param {number} [options.intervalMs] - Minimum delay between two checks.
+ * @param {number} [options.restartIntervalMs] - Minimum delay between two restarts.
  * @returns {Function} `() => Promise<object|null>`, a message when the container is not running.
  * @example
- * const watchDaemonContainer = createDaemonContainerWatch({ gladys });
+ * const watchDaemonContainer = createDaemonContainerWatch({ gladys, restartDaemon });
  */
 export function createDaemonContainerWatch({
   gladys,
+  restartDaemon = null,
   now = Date.now,
   intervalMs = STATE_CHECK_INTERVAL_MS,
+  restartIntervalMs = RESTART_INTERVAL_MS,
 }) {
   let checkedAt = 0;
+  let restartedAt = 0;
   let message = null;
+
+  const restartIfDown = async (status) => {
+    if (!restartDaemon || !RESTARTABLE_STATUSES.has(status)) {
+      return false;
+    }
+    if (restartedAt && now() - restartedAt < restartIntervalMs) {
+      return false;
+    }
+    restartedAt = now();
+    try {
+      await restartDaemon();
+      logger.info('Olvid daemon container started back up');
+      return true;
+    } catch (e) {
+      logger.error(`Starting the Olvid daemon container back up failed: ${e?.message ?? e}`);
+      return false;
+    }
+  };
 
   return async function watchDaemonContainer() {
     if (checkedAt && now() - checkedAt < intervalMs) {
@@ -211,10 +247,16 @@ export function createDaemonContainerWatch({
       // The exit reason is in the container logs, which the integration cannot
       // read: point the user at them rather than paraphrasing a guess.
       logger.error(`The Olvid daemon container is "${container.status}", not running`);
-      message = {
-        en: `The Olvid daemon container stopped (${container.status}). Check its logs in Gladys.`,
-        fr: `Le conteneur du démon Olvid s'est arrêté (${container.status}). Consultez ses logs dans Gladys.`,
-      };
+      const restarted = await restartIfDown(container.status);
+      message = restarted
+        ? {
+            en: `The Olvid daemon container had stopped (${container.status}), starting it back up. Check its logs in Gladys.`,
+            fr: `Le conteneur du démon Olvid s'était arrêté (${container.status}), redémarrage en cours. Consultez ses logs dans Gladys.`,
+          }
+        : {
+            en: `The Olvid daemon container stopped (${container.status}). Check its logs in Gladys.`,
+            fr: `Le conteneur du démon Olvid s'est arrêté (${container.status}). Consultez ses logs dans Gladys.`,
+          };
       return message;
     } catch (e) {
       logger.debug('Reading the state of the Olvid daemon container failed', e);

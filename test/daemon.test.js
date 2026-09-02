@@ -362,6 +362,39 @@ test('a broken notification stream tears the session down and reports it', async
   await daemon.stop();
 });
 
+test('a client that stopped itself is noticed without waiting for the health check', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon, statuses } = build(olvid);
+  await daemon.start(config());
+
+  // @olvid/bot-node answers a gRPC connection error by stopping the client and
+  // returning, WITHOUT calling our endCallback: nothing but the abort of its
+  // callbacks says the session is dead. Missing it leaves a client that is
+  // "connected" and receives nothing until the next ping, up to a minute later.
+  olvid.stopClientItself();
+
+  assert.equal(daemon.connected, false);
+  assert.equal(statuses.at(-1).connected, false);
+  assert.match(statuses.at(-1).message.en, /Connection to the Olvid daemon lost/);
+
+  await daemon.stop();
+});
+
+test('a teardown of ours is not mistaken for a connection loss', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon, statuses } = build(olvid);
+  await daemon.start(config());
+  const before = statuses.length;
+
+  // stop() stops the client too, which aborts the very same callbacks: a
+  // session we closed on purpose must not schedule a reconnection.
+  await daemon.stop();
+
+  assert.equal(olvid.state.stopped, true);
+  assert.equal(statuses.length, before, 'closing the session reports nothing');
+  assert.equal(daemon.reconnectTimer, null);
+});
+
 test('an action refuses to run when the session is closed', async () => {
   const olvid = createFakeOlvid();
   const { daemon } = build(olvid);

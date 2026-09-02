@@ -225,11 +225,44 @@ export class OlvidDaemon {
     this.client = client;
     this.identity = identity;
 
+    this.watchClientStop(client);
     await this.applyInvitationSettings();
     await this.refreshContacts();
     this.subscribe();
     this.startHealthChecks();
     await this.catchUpUnreadMessages();
+  }
+
+  /**
+   * @description Notice the Olvid client stopping itself. `@olvid/bot-node`
+   * reacts to a gRPC connection error on a notification stream by logging
+   * "connection error, stopping client" and calling `stop()` — WITHOUT calling
+   * our `endCallback`, so nothing else tells us the session is dead. Left to
+   * the health check alone, the integration would keep a client that receives
+   * nothing for up to a minute; `stop()` aborts the client callbacks, so that
+   * abort is the signal to rebuild the session right away.
+   * @param {object} client - The client of the session being opened.
+   * @returns {void} Nothing.
+   * @example
+   * this.watchClientStop(client);
+   */
+  watchClientStop(client) {
+    const signal = client?.callbacksAbort?.signal;
+    if (typeof signal?.addEventListener !== 'function') {
+      return;
+    }
+    signal.addEventListener(
+      'abort',
+      () => {
+        // A teardown of ours detaches the client first: anything else is the
+        // library giving up on a connection we still believe in.
+        if (this.client !== client) {
+          return;
+        }
+        this.handleConnectionLost(new Error('the Olvid client stopped itself'));
+      },
+      { once: true },
+    );
   }
 
   teardownSession() {
@@ -246,12 +279,16 @@ export class OlvidDaemon {
       clearInterval(this.healthTimer);
       this.healthTimer = null;
     }
+    // Detached BEFORE being stopped: stopping the client aborts its callbacks,
+    // which is exactly the signal watchClientStop() listens to — and a teardown
+    // we asked for is not a connection loss to react to.
+    const client = this.client;
+    this.client = null;
     try {
-      this.client?.stop();
+      client?.stop();
     } catch (e) {
       logger.debug('Olvid client already stopped', e);
     }
-    this.client = null;
     this.adminClient = null;
     this.contactIdByKey.clear();
     this.contactKeyById.clear();

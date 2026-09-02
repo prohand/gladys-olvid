@@ -55,6 +55,10 @@ export function createFakeOlvid({
   };
 
   const client = {
+    // The real client aborts this controller in `stop()`, whoever called it —
+    // including itself, when @olvid/bot-node gives up on a broken stream. A
+    // fresh one per built client, exactly like a `new OlvidClient()`.
+    callbacksAbort: new AbortController(),
     async authenticationTest() {},
     async ping() {},
     async daemonVersion() {
@@ -127,6 +131,7 @@ export function createFakeOlvid({
     onInvitationUpdated: subscribe('invitationUpdated'),
     stop() {
       state.stopped = true;
+      client.callbacksAbort.abort();
     },
   };
 
@@ -159,12 +164,19 @@ export function createFakeOlvid({
     state,
     client,
     adminClient,
-    createClient: () => client,
+    createClient: () => {
+      client.callbacksAbort = new AbortController();
+      return client;
+    },
     createAdminClient: () => adminClient,
     // Simulate what the daemon pushes on its notification streams.
     emitMessage: (message) => state.listeners.message.callback(message),
     emitContact: (contact) => state.listeners.contact.callback(contact),
     breakStream: (error) => state.listeners.message.endCallback(error),
+    // What @olvid/bot-node does on a gRPC connection error: it logs
+    // "connection error, stopping client", calls stop() — and returns WITHOUT
+    // calling the endCallback, so the abort is the only trace left.
+    stopClientItself: () => client.stop(),
   };
 }
 

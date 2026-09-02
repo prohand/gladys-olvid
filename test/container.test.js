@@ -167,6 +167,74 @@ test('the container state is not re-read on every retry', async () => {
   assert.equal(reads, 2);
 });
 
+test('a stopped daemon container is started back up, not just reported', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'stopped' }];
+  const restarts = [];
+  const watch = createDaemonContainerWatch({
+    gladys,
+    restartDaemon: async () => restarts.push('restart'),
+  });
+
+  const message = await watch();
+
+  assert.equal(restarts.length, 1, 'a daemon that stayed down is nobody else to start back up');
+  assert.match(message.en, /starting it back up/);
+  assert.match(message.fr, /redémarrage en cours/);
+});
+
+test('a daemon container the supervisor is already driving is left alone', async () => {
+  const gladys = createFakeGladys();
+  const restarts = [];
+  const restartDaemon = async () => restarts.push('restart');
+
+  for (const status of ['restarting', 'created', 'paused']) {
+    gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status }];
+    await createDaemonContainerWatch({ gladys, restartDaemon })();
+  }
+
+  assert.deepEqual(restarts, [], 'a transient state is not ours to race');
+});
+
+test('a daemon that crashes in a loop is not restarted on every check', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'exited' }];
+  const restarts = [];
+  let clock = 1_000;
+  const watch = createDaemonContainerWatch({
+    gladys,
+    restartDaemon: async () => restarts.push(clock),
+    now: () => clock,
+    intervalMs: 30_000,
+    restartIntervalMs: 60_000,
+  });
+
+  await watch();
+  clock += 30_000;
+  await watch();
+  assert.deepEqual(restarts, [1_000], 'the supervisor restarts crashes: no need to race it');
+
+  clock += 30_000;
+  await watch();
+  assert.deepEqual(restarts, [1_000, 61_000]);
+});
+
+test('a restart that fails is reported as a container that is still down', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'exited' }];
+  const watch = createDaemonContainerWatch({
+    gladys,
+    restartDaemon: async () => {
+      throw apiError(500, 'image pull failed');
+    },
+  });
+
+  const message = await watch();
+
+  assert.match(message.en, /stopped \(exited\)/);
+  assert.doesNotMatch(message.en, /starting it back up/);
+});
+
 test('a host API that cannot answer never hides the connection error', async () => {
   const gladys = createFakeGladys();
   gladys.getContainers = async () => {
