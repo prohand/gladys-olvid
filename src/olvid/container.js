@@ -117,11 +117,42 @@ export async function prepareDaemonVolumes({ dataDir = CONTAINERS_DATA_DIR } = {
 }
 
 /**
+ * @description Whether the daemon container is currently running. Best effort:
+ * a host API that cannot answer is reported as "not running", which only ever
+ * leads to a start being attempted.
+ * @param {object} gladys - The Gladys SDK instance.
+ * @returns {Promise<boolean>} True when the container runs.
+ * @example
+ * if (await isDaemonRunning(gladys)) { … }
+ */
+export async function isDaemonRunning(gladys) {
+  try {
+    const containers = await gladys.getContainers();
+    const container = (containers ?? []).find((entry) => entry.name === DAEMON_CONTAINER_NAME);
+    return container?.status === 'running';
+  } catch (e) {
+    logger.debug('Reading the state of the Olvid daemon container failed', e);
+    return false;
+  }
+}
+
+/**
  * @description Make sure the managed Olvid daemon is running, and return the
- * settings the gRPC session needs to reach it. Idempotent: the same admin key
- * is passed on every call, so the supervisor keeps the existing container
- * (a different `env` would make it recreate the container — and the Olvid
- * profile lives in a volume, not in the container, so even that stays safe).
+ * settings the gRPC session needs to reach it.
+ *
+ * A daemon that is ALREADY running is left strictly alone. This function is
+ * called on every (re)connection to Gladys — and the Gladys WebSocket drops
+ * whenever the core restarts, several times a week — while `startContainer` on
+ * a running container makes the supervisor restart it. That was enough to cut
+ * a perfectly healthy Olvid session: the gRPC streams died with "http/2 stream
+ * closed with error code CANCEL", then the daemon took another ten seconds of
+ * JVM boot to answer again. Nothing here needs the container touched when it
+ * is already up, so it is not.
+ *
+ * The one case that must always start it is a freshly generated admin key: a
+ * container running with a key we do not know is a daemon nobody can
+ * authenticate against, and only a recreation with the new `env` fixes it (the
+ * Olvid profile lives in a volume, not in the container, so that stays safe).
  * @param {object} options - Collaborators.
  * @param {object} options.gladys - The Gladys SDK instance.
  * @param {string} [options.adminClientKey] - Key generated on a previous run.
@@ -138,6 +169,9 @@ export async function startManagedDaemon({ gladys, adminClientKey, saveAdminClie
     // Persist BEFORE starting: a container started with a key we forgot would
     // be unreachable forever (the key only exists in its environment).
     await saveAdminClientKey(key);
+  } else if (await isDaemonRunning(gladys)) {
+    logger.info('The managed Olvid daemon is already running, leaving it as it is');
+    return { daemon_url: MANAGED_DAEMON_URL, admin_client_key: key };
   }
 
   await prepareDaemonVolumes();

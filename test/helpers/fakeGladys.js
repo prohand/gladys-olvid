@@ -48,6 +48,13 @@ export function createFakeGladys({
       return { success: true };
     },
 
+    // No sub-container by default: the tests that care about the state of the
+    // daemon container override this.
+    async getContainers() {
+      calls.push({ method: 'getContainers' });
+      return [];
+    },
+
     async startContainer(name, options = {}) {
       calls.push({ method: 'startContainer', name, ...options });
       if (startContainerError) {
