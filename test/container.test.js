@@ -74,6 +74,69 @@ test('the next runs reuse the stored key without generating a new one', async ()
   assert.equal(start.env[ADMIN_KEY_ENV], 'a-key-from-a-previous-run');
 });
 
+test('a daemon that is already running is left strictly alone', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'running' }];
+
+  const managed = await startManagedDaemon({
+    gladys,
+    adminClientKey: 'a-key-from-a-previous-run',
+    saveAdminClientKey: async () => {},
+  });
+
+  // startContainer on a running container makes the supervisor restart it, and
+  // this runs on every reconnection to Gladys — which happens every time the
+  // core restarts. Touching a healthy daemon there cut the Olvid session for
+  // the ten seconds its JVM needs to come back.
+  assert.deepEqual(
+    gladys.calls.filter((call) => call.method === 'startContainer'),
+    [],
+  );
+  assert.equal(managed.daemon_url, MANAGED_DAEMON_URL);
+  assert.equal(managed.admin_client_key, 'a-key-from-a-previous-run');
+});
+
+test('a daemon that is not running is started, whatever state it is in', async () => {
+  for (const status of ['exited', 'stopped', 'created', 'restarting']) {
+    const gladys = createFakeGladys();
+    gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status }];
+
+    await startManagedDaemon({ gladys, adminClientKey: 'k', saveAdminClientKey: async () => {} });
+
+    assert.ok(
+      gladys.calls.some((call) => call.method === 'startContainer'),
+      `a "${status}" daemon must be started`,
+    );
+  }
+});
+
+test('a freshly generated key always starts the container, running or not', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'running' }];
+
+  const managed = await startManagedDaemon({
+    gladys,
+    adminClientKey: '',
+    saveAdminClientKey: async () => {},
+  });
+
+  // A container running with a key we do not know is a daemon nobody can
+  // authenticate against: only a start with the new env fixes it.
+  const start = gladys.calls.find((call) => call.method === 'startContainer');
+  assert.equal(start.env[ADMIN_KEY_ENV], managed.admin_client_key);
+});
+
+test('a host API that cannot say whether the daemon runs still starts it', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => {
+    throw apiError(500, 'host API down');
+  };
+
+  await startManagedDaemon({ gladys, adminClientKey: 'k', saveAdminClientKey: async () => {} });
+
+  assert.ok(gladys.calls.some((call) => call.method === 'startContainer'));
+});
+
 test('a blank stored key is treated as no key at all', async () => {
   const gladys = createFakeGladys();
   const saved = [];
@@ -165,6 +228,74 @@ test('the container state is not re-read on every retry', async () => {
   clock += 30_000;
   await watch();
   assert.equal(reads, 2);
+});
+
+test('a stopped daemon container is started back up, not just reported', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'stopped' }];
+  const restarts = [];
+  const watch = createDaemonContainerWatch({
+    gladys,
+    restartDaemon: async () => restarts.push('restart'),
+  });
+
+  const message = await watch();
+
+  assert.equal(restarts.length, 1, 'a daemon that stayed down is nobody else to start back up');
+  assert.match(message.en, /starting it back up/);
+  assert.match(message.fr, /redémarrage en cours/);
+});
+
+test('a daemon container the supervisor is already driving is left alone', async () => {
+  const gladys = createFakeGladys();
+  const restarts = [];
+  const restartDaemon = async () => restarts.push('restart');
+
+  for (const status of ['restarting', 'created', 'paused']) {
+    gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status }];
+    await createDaemonContainerWatch({ gladys, restartDaemon })();
+  }
+
+  assert.deepEqual(restarts, [], 'a transient state is not ours to race');
+});
+
+test('a daemon that crashes in a loop is not restarted on every check', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'exited' }];
+  const restarts = [];
+  let clock = 1_000;
+  const watch = createDaemonContainerWatch({
+    gladys,
+    restartDaemon: async () => restarts.push(clock),
+    now: () => clock,
+    intervalMs: 30_000,
+    restartIntervalMs: 60_000,
+  });
+
+  await watch();
+  clock += 30_000;
+  await watch();
+  assert.deepEqual(restarts, [1_000], 'the supervisor restarts crashes: no need to race it');
+
+  clock += 30_000;
+  await watch();
+  assert.deepEqual(restarts, [1_000, 61_000]);
+});
+
+test('a restart that fails is reported as a container that is still down', async () => {
+  const gladys = createFakeGladys();
+  gladys.getContainers = async () => [{ name: DAEMON_CONTAINER_NAME, status: 'exited' }];
+  const watch = createDaemonContainerWatch({
+    gladys,
+    restartDaemon: async () => {
+      throw apiError(500, 'image pull failed');
+    },
+  });
+
+  const message = await watch();
+
+  assert.match(message.en, /stopped \(exited\)/);
+  assert.doesNotMatch(message.en, /starting it back up/);
 });
 
 test('a host API that cannot answer never hides the connection error', async () => {

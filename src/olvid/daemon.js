@@ -43,6 +43,14 @@ const RECONNECT_MAX_DELAY_MS = 300_000;
 // the very first install), and answering "unavailable" while it does.
 const RECONNECT_STEADY_ATTEMPTS = 12;
 
+// Messages handed over by Gladys while the session is down wait in the outbox.
+// Bounded both ways: a notification nobody could receive for minutes is stale
+// news (the scene that sent it has moved on), and a daemon that stays down must
+// not fill the memory of the integration container — an image attachment is
+// carried in there too.
+const OUTBOX_MAX_MESSAGES = 20;
+const OUTBOX_TTL_MS = 300_000;
+
 // Invitation statuses where the user has to read a code in Gladys, or type
 // theirs in it — the manual step of the Olvid trust establishment.
 const SAS_STATUSES = new Set([
@@ -93,6 +101,9 @@ export class OlvidDaemon {
     this.contactKeyById = new Map();
     this.contactNameById = new Map();
     this.discussionIdByContactId = new Map();
+
+    // Messages waiting for the session to come back (see sendMessage).
+    this.outbox = [];
 
     this.subscriptions = [];
     this.healthTimer = null;
@@ -159,6 +170,7 @@ export class OlvidDaemon {
       this.reconnecting = false;
       logger.info(`Connected to the Olvid daemon as "${this.identity.displayName}"`);
       await this.notifyStatus(true);
+      await this.flushOutbox();
     } catch (e) {
       this.reconnectAttempts += 1;
       const reason = describeOlvidError(e);
@@ -225,11 +237,44 @@ export class OlvidDaemon {
     this.client = client;
     this.identity = identity;
 
+    this.watchClientStop(client);
     await this.applyInvitationSettings();
     await this.refreshContacts();
     this.subscribe();
     this.startHealthChecks();
     await this.catchUpUnreadMessages();
+  }
+
+  /**
+   * @description Notice the Olvid client stopping itself. `@olvid/bot-node`
+   * reacts to a gRPC connection error on a notification stream by logging
+   * "connection error, stopping client" and calling `stop()` — WITHOUT calling
+   * our `endCallback`, so nothing else tells us the session is dead. Left to
+   * the health check alone, the integration would keep a client that receives
+   * nothing for up to a minute; `stop()` aborts the client callbacks, so that
+   * abort is the signal to rebuild the session right away.
+   * @param {object} client - The client of the session being opened.
+   * @returns {void} Nothing.
+   * @example
+   * this.watchClientStop(client);
+   */
+  watchClientStop(client) {
+    const signal = client?.callbacksAbort?.signal;
+    if (typeof signal?.addEventListener !== 'function') {
+      return;
+    }
+    signal.addEventListener(
+      'abort',
+      () => {
+        // A teardown of ours detaches the client first: anything else is the
+        // library giving up on a connection we still believe in.
+        if (this.client !== client) {
+          return;
+        }
+        this.handleConnectionLost(new Error('the Olvid client stopped itself'));
+      },
+      { once: true },
+    );
   }
 
   teardownSession() {
@@ -246,12 +291,16 @@ export class OlvidDaemon {
       clearInterval(this.healthTimer);
       this.healthTimer = null;
     }
+    // Detached BEFORE being stopped: stopping the client aborts its callbacks,
+    // which is exactly the signal watchClientStop() listens to — and a teardown
+    // we asked for is not a connection loss to react to.
+    const client = this.client;
+    this.client = null;
     try {
-      this.client?.stop();
+      client?.stop();
     } catch (e) {
       logger.debug('Olvid client already stopped', e);
     }
-    this.client = null;
     this.adminClient = null;
     this.contactIdByKey.clear();
     this.contactKeyById.clear();
@@ -561,14 +610,101 @@ export class OlvidDaemon {
    * @description Deliver a message to a contact in their one-to-one Olvid
    * discussion. A long text is split into several messages, and an image
    * coming from Gladys is sent as an attachment of the first one.
+   *
+   * A message handed over while the session is down is NOT lost: it waits in
+   * the outbox and leaves as soon as the session is back — a notification sent
+   * by a scene during the ten seconds the daemon takes to restart used to be
+   * dropped, and a user who never sees it has no way to know it existed.
    * @param {string} contactKey - Contact id as known by Gladys.
    * @param {{ text?: string, file?: string }} message - Message to deliver.
-   * @returns {Promise<void>} Resolves once the daemon accepted the message.
+   * @returns {Promise<void>} Resolves once the daemon accepted the message, or once it is queued.
    * @example
    * await daemon.sendMessage(contactKey, { text: 'The garage door is open' });
    */
-  async sendMessage(contactKey, { text, file } = {}) {
+  async sendMessage(contactKey, message = {}) {
     if (!this.client) {
+      this.queueMessage(contactKey, message);
+      return;
+    }
+    try {
+      await this.deliverMessage(contactKey, message);
+    } catch (e) {
+      // The session dropped while we were delivering: the message is not the
+      // one at fault, so it waits for the next one instead of being lost.
+      if (this.client) {
+        throw e;
+      }
+      logger.warn(`Sending failed on a session that just dropped: ${describeOlvidError(e)}`);
+      this.queueMessage(contactKey, message);
+    }
+  }
+
+  /**
+   * @description Put a message aside until the session is back. The outbox is
+   * bounded both ways: a notification nobody could receive for minutes is
+   * stale news, and a daemon that stays down must not fill the memory of the
+   * integration container.
+   * @param {string} contactKey - Contact id as known by Gladys.
+   * @param {{ text?: string, file?: string }} message - Message to deliver.
+   * @returns {void} Nothing.
+   * @example
+   * this.queueMessage(contactKey, { text: 'The garage door is open' });
+   */
+  queueMessage(contactKey, message) {
+    this.outbox.push({ contactKey, message, queuedAt: Date.now() });
+    const dropped = this.outbox.length - OUTBOX_MAX_MESSAGES;
+    if (dropped > 0) {
+      this.outbox.splice(0, dropped);
+      logger.warn(`Olvid daemon still unreachable: ${dropped} older message(s) dropped`);
+    }
+    logger.info(
+      `Not connected to the Olvid daemon: message kept for later (${this.outbox.length} waiting)`,
+    );
+  }
+
+  /**
+   * @description Send what waited for the session to come back, oldest first.
+   * @returns {Promise<void>} Resolves once the outbox is empty (or the session dropped again).
+   * @example
+   * await daemon.flushOutbox();
+   */
+  async flushOutbox() {
+    if (this.outbox.length === 0) {
+      return;
+    }
+    const deadline = Date.now() - OUTBOX_TTL_MS;
+    const pending = this.outbox;
+    this.outbox = [];
+
+    const stale = pending.filter((entry) => entry.queuedAt < deadline).length;
+    if (stale > 0) {
+      logger.warn(`${stale} message(s) waited more than ${OUTBOX_TTL_MS / 60_000} min: dropped`);
+    }
+    const fresh = pending.filter((entry) => entry.queuedAt >= deadline);
+    if (fresh.length === 0) {
+      return;
+    }
+
+    logger.info(`Sending ${fresh.length} message(s) that waited for the daemon`);
+    for (const [index, entry] of fresh.entries()) {
+      if (!this.client) {
+        // The session dropped again mid-flush: keep the rest for the next one.
+        this.outbox.unshift(...fresh.slice(index));
+        return;
+      }
+      try {
+        await this.deliverMessage(entry.contactKey, entry.message);
+      } catch (e) {
+        logger.error(`Sending a message that waited failed: ${describeOlvidError(e)}`);
+      }
+    }
+  }
+
+  async deliverMessage(contactKey, { text, file } = {}) {
+    // Held locally: a session torn down mid-delivery must fail with the usual
+    // error, not with a "cannot read property of null".
+    const client = this.client;
+    if (!client) {
       throw new Error('not connected to the Olvid daemon');
     }
     const contactId = await this.contactIdFor(contactKey);
@@ -581,14 +717,14 @@ export class OlvidDaemon {
     }
 
     if (attachment) {
-      await this.client.messageSendWithAttachments({
+      await client.messageSendWithAttachments({
         discussionId,
         body: chunks.shift(),
         attachments: [attachment],
       });
     }
     for (const chunk of chunks) {
-      await this.client.messageSend({ discussionId, body: chunk });
+      await client.messageSend({ discussionId, body: chunk });
     }
   }
 

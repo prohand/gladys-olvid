@@ -362,12 +362,109 @@ test('a broken notification stream tears the session down and reports it', async
   await daemon.stop();
 });
 
+test('a client that stopped itself is noticed without waiting for the health check', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon, statuses } = build(olvid);
+  await daemon.start(config());
+
+  // @olvid/bot-node answers a gRPC connection error by stopping the client and
+  // returning, WITHOUT calling our endCallback: nothing but the abort of its
+  // callbacks says the session is dead. Missing it leaves a client that is
+  // "connected" and receives nothing until the next ping, up to a minute later.
+  olvid.stopClientItself();
+
+  assert.equal(daemon.connected, false);
+  assert.equal(statuses.at(-1).connected, false);
+  assert.match(statuses.at(-1).message.en, /Connection to the Olvid daemon lost/);
+
+  await daemon.stop();
+});
+
+test('a teardown of ours is not mistaken for a connection loss', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon, statuses } = build(olvid);
+  await daemon.start(config());
+  const before = statuses.length;
+
+  // stop() stops the client too, which aborts the very same callbacks: a
+  // session we closed on purpose must not schedule a reconnection.
+  await daemon.stop();
+
+  assert.equal(olvid.state.stopped, true);
+  assert.equal(statuses.length, before, 'closing the session reports nothing');
+  assert.equal(daemon.reconnectTimer, null);
+});
+
 test('an action refuses to run when the session is closed', async () => {
   const olvid = createFakeOlvid();
   const { daemon } = build(olvid);
 
   await assert.rejects(() => daemon.getInvitationLink(), /not connected/);
-  await assert.rejects(() => daemon.sendMessage('anything', { text: 'hello' }), /not connected/);
+  await assert.rejects(() => daemon.acceptPendingInvitations(), /not connected/);
+});
+
+test('a message sent while the session is down waits, then leaves on reconnection', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid);
+
+  // A scene notifying the user during the ten seconds the daemon takes to
+  // restart: the message used to be dropped, and nobody ever knew.
+  await daemon.sendMessage(contactKeyOf(7), { text: 'the garage door is open' });
+  assert.deepEqual(olvid.state.sentMessages, []);
+
+  await daemon.start(config());
+
+  assert.deepEqual(
+    olvid.state.sentMessages.map((message) => message.body),
+    ['the garage door is open'],
+  );
+
+  await daemon.stop();
+});
+
+test('the outbox keeps neither stale news nor an unbounded backlog', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid);
+  const contactKey = contactKeyOf(7);
+
+  // More than the outbox holds: the oldest go, the most recent stay.
+  for (let i = 0; i < 25; i += 1) {
+    await daemon.sendMessage(contactKey, { text: `message ${i}` });
+  }
+  assert.equal(daemon.outbox.length, 20);
+  assert.equal(daemon.outbox[0].message.text, 'message 5');
+
+  // A notification nobody could receive for minutes is not worth sending: the
+  // scene that raised it has moved on.
+  daemon.outbox[0].queuedAt -= 600_000;
+
+  await daemon.start(config());
+
+  assert.equal(olvid.state.sentMessages.length, 19);
+  assert.equal(olvid.state.sentMessages[0].body, 'message 6');
+  assert.deepEqual(daemon.outbox, []);
+
+  await daemon.stop();
+});
+
+test('a message that cannot be delivered never blocks the ones behind it', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid);
+
+  await daemon.sendMessage('a-contact-nobody-knows', { text: 'lost' });
+  await daemon.sendMessage(contactKeyOf(7), { text: 'delivered' });
+
+  await daemon.start(config());
+
+  assert.deepEqual(
+    olvid.state.sentMessages.map((message) => message.body),
+    ['delivered'],
+  );
+
+  await daemon.stop();
 });
 
 test('describeOlvidError surfaces the low-level code', () => {
