@@ -400,7 +400,71 @@ test('an action refuses to run when the session is closed', async () => {
   const { daemon } = build(olvid);
 
   await assert.rejects(() => daemon.getInvitationLink(), /not connected/);
-  await assert.rejects(() => daemon.sendMessage('anything', { text: 'hello' }), /not connected/);
+  await assert.rejects(() => daemon.acceptPendingInvitations(), /not connected/);
+});
+
+test('a message sent while the session is down waits, then leaves on reconnection', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid);
+
+  // A scene notifying the user during the ten seconds the daemon takes to
+  // restart: the message used to be dropped, and nobody ever knew.
+  await daemon.sendMessage(contactKeyOf(7), { text: 'the garage door is open' });
+  assert.deepEqual(olvid.state.sentMessages, []);
+
+  await daemon.start(config());
+
+  assert.deepEqual(
+    olvid.state.sentMessages.map((message) => message.body),
+    ['the garage door is open'],
+  );
+
+  await daemon.stop();
+});
+
+test('the outbox keeps neither stale news nor an unbounded backlog', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid);
+  const contactKey = contactKeyOf(7);
+
+  // More than the outbox holds: the oldest go, the most recent stay.
+  for (let i = 0; i < 25; i += 1) {
+    await daemon.sendMessage(contactKey, { text: `message ${i}` });
+  }
+  assert.equal(daemon.outbox.length, 20);
+  assert.equal(daemon.outbox[0].message.text, 'message 5');
+
+  // A notification nobody could receive for minutes is not worth sending: the
+  // scene that raised it has moved on.
+  daemon.outbox[0].queuedAt -= 600_000;
+
+  await daemon.start(config());
+
+  assert.equal(olvid.state.sentMessages.length, 19);
+  assert.equal(olvid.state.sentMessages[0].body, 'message 6');
+  assert.deepEqual(daemon.outbox, []);
+
+  await daemon.stop();
+});
+
+test('a message that cannot be delivered never blocks the ones behind it', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid);
+
+  await daemon.sendMessage('a-contact-nobody-knows', { text: 'lost' });
+  await daemon.sendMessage(contactKeyOf(7), { text: 'delivered' });
+
+  await daemon.start(config());
+
+  assert.deepEqual(
+    olvid.state.sentMessages.map((message) => message.body),
+    ['delivered'],
+  );
+
+  await daemon.stop();
 });
 
 test('describeOlvidError surfaces the low-level code', () => {
