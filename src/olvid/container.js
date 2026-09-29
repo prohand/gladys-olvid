@@ -313,8 +313,8 @@ export function describeContainerError(error) {
   const reason = error?.message ?? 'unknown error';
   if (error?.status === 404) {
     return {
-      en: `The Olvid daemon container is unknown to this Gladys (${reason}). Update Gladys, or switch the daemon to "an existing daemon of mine".`,
-      fr: `Le conteneur du démon Olvid est inconnu de ce Gladys (${reason}). Mettez Gladys à jour, ou basculez le démon sur « un démon existant à moi ».`,
+      en: `The Olvid daemon container is unknown to this Gladys (${reason}). Update Gladys, or switch the "Olvid daemon" field to "My own daemon".`,
+      fr: `Le conteneur du démon Olvid est inconnu de ce Gladys (${reason}). Mettez Gladys à jour, ou basculez le champ « Démon Olvid » sur « Mon propre démon ».`,
     };
   }
   return {

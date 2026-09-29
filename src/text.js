@@ -25,7 +25,7 @@ export function truncateIncoming(text, maxLength = MAX_INCOMING_LENGTH) {
   if (value.length <= maxLength) {
     return value;
   }
-  return `${value.slice(0, maxLength - 1)}…`;
+  return `${value.slice(0, safeCut(value, maxLength - 1))}…`;
 }
 
 /**
@@ -52,7 +52,7 @@ export function splitOutgoing(text, maxLength = MAX_OUTGOING_LENGTH) {
       window.lastIndexOf('\n'),
       window.lastIndexOf(' '),
     );
-    const splitAt = cut > maxLength / 2 ? cut : maxLength;
+    const splitAt = cut > maxLength / 2 ? cut : safeCut(rest, maxLength);
     chunks.push(rest.slice(0, splitAt).trim());
     rest = rest.slice(splitAt).trim();
   }
@@ -60,4 +60,11 @@ export function splitOutgoing(text, maxLength = MAX_OUTGOING_LENGTH) {
     chunks.push(rest);
   }
   return chunks;
+}
+
+// Never cut between the two halves of a surrogate pair (an emoji): each side
+// would be a broken character.
+function safeCut(text, index) {
+  const code = text.charCodeAt(index - 1);
+  return code >= 0xd800 && code <= 0xdbff ? index - 1 : index;
 }

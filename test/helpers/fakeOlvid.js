@@ -41,6 +41,10 @@ export function createFakeOlvid({
     stopped: false,
     listeners: {},
     nextIdentityId: 1n,
+    // Key of the last client built: a client key is bound to one profile.
+    clientKey: null,
+    // Set to a promise to hold the admin authentication (a daemon still booting).
+    adminAuthGate: null,
   };
 
   const iterate = async function* (items) {
@@ -65,7 +69,8 @@ export function createFakeOlvid({
       return '2.0.1';
     },
     async identityGet() {
-      return state.identities[0];
+      const key = state.clientKeys.find((k) => k.key === state.clientKey);
+      return (key && state.identities.find((i) => i.id === key.identityId)) ?? state.identities[0];
     },
     async identityGetInvitationLink() {
       return 'https://invitation.olvid.io/#AAAA';
@@ -137,7 +142,9 @@ export function createFakeOlvid({
 
   const adminClient = {
     currentIdentityId: 0,
-    async authenticationAdminTest() {},
+    async authenticationAdminTest() {
+      await state.adminAuthGate;
+    },
     adminIdentityList() {
       return iterate(state.identities);
     },
@@ -164,7 +171,8 @@ export function createFakeOlvid({
     state,
     client,
     adminClient,
-    createClient: () => {
+    createClient: ({ clientKey } = {}) => {
+      state.clientKey = clientKey;
       client.callbacksAbort = new AbortController();
       return client;
     },

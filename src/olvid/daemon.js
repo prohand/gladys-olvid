@@ -42,6 +42,8 @@ const RECONNECT_MAX_DELAY_MS = 300_000;
 // daemon Gladys just started is still booting (a JVM, plus the image pull on
 // the very first install), and answering "unavailable" while it does.
 const RECONNECT_STEADY_ATTEMPTS = 12;
+// gRPC status code of a daemon that does not answer (Code.Unavailable).
+const GRPC_UNAVAILABLE = 14;
 
 // Messages handed over by Gladys while the session is down wait in the outbox.
 // Bounded both ways: a notification nobody could receive for minutes is stale
@@ -111,6 +113,9 @@ export class OlvidDaemon {
     this.reconnectAttempts = 0;
     this.reconnecting = false;
     this.stopping = false;
+    // Bumped by every stop(): a connection attempt started before it is stale
+    // and must not install its client (see connectWithRetry).
+    this.generation = 0;
   }
 
   /**
@@ -133,13 +138,20 @@ export class OlvidDaemon {
    * await daemon.start(config);
    */
   async start(config) {
-    await this.stop();
+    // stop() bumps the generation synchronously: read it before yielding, so
+    // two start() calls in a row never share one.
+    const stopped = this.stop();
+    const generation = this.generation;
+    await stopped;
+    if (generation !== this.generation) {
+      return;
+    }
     this.stopping = false;
     // Own copy: the session stores the client key it mints in there, and the
     // caller's configuration object is not ours to mutate.
     this.config = { ...config };
     this.reconnectAttempts = 0;
-    await this.connectWithRetry();
+    await this.connectWithRetry(generation);
   }
 
   /**
@@ -151,6 +163,7 @@ export class OlvidDaemon {
    */
   async stop() {
     this.stopping = true;
+    this.generation += 1;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -160,21 +173,39 @@ export class OlvidDaemon {
 
   // --- Connection lifecycle --------------------------------------------------
 
-  async connectWithRetry() {
-    if (this.stopping) {
+  async connectWithRetry(generation = this.generation) {
+    if (this.stopping || generation !== this.generation) {
       return;
     }
+    // A stop() — or a start() with a new configuration — can land while this
+    // attempt waits on the daemon. The Gladys WebSocket reconnecting fires a
+    // start() too. Without this check the stale attempt would install a second
+    // client (every message received twice) or report "unreachable" over the
+    // session that replaced it.
     try {
-      await this.connect();
+      await this.connect(generation);
+      if (generation !== this.generation) {
+        return;
+      }
       this.reconnectAttempts = 0;
       this.reconnecting = false;
       logger.info(`Connected to the Olvid daemon as "${this.identity.displayName}"`);
       await this.notifyStatus(true);
       await this.flushOutbox();
     } catch (e) {
+      if (generation !== this.generation) {
+        logger.debug(`A replaced connection attempt ended: ${describeOlvidError(e)}`);
+        return;
+      }
       this.reconnectAttempts += 1;
       const reason = describeOlvidError(e);
-      logger.error(`Connection to the Olvid daemon failed: ${reason}`);
+      // The first failures are usually a daemon still booting (a JVM, restarted
+      // with the integration on an update): not worth an error in the logs.
+      if (this.reconnectAttempts <= RECONNECT_STEADY_ATTEMPTS && isUnavailable(e)) {
+        logger.warn(`Olvid daemon not ready yet: ${reason}`);
+      } else {
+        logger.error(`Connection to the Olvid daemon failed: ${reason}`);
+      }
       this.teardownSession();
       await this.notifyStatus(false, {
         en: `Olvid daemon unreachable: ${reason}`,
@@ -212,7 +243,7 @@ export class OlvidDaemon {
     this.scheduleReconnect();
   }
 
-  async connect() {
+  async connect(generation = this.generation) {
     const config = this.config;
     const daemonUrl = config.daemon_url;
 
@@ -233,6 +264,11 @@ export class OlvidDaemon {
     const client = this.createClient({ daemonUrl, clientKey });
     await client.authenticationTest();
 
+    if (generation !== this.generation) {
+      // Replaced while we were waiting on the daemon: never install this one.
+      client.stop();
+      throw new Error('connection attempt replaced by a newer one');
+    }
     this.adminClient = adminClient;
     this.client = client;
     this.identity = identity;
@@ -362,10 +398,19 @@ export class OlvidDaemon {
     const daemonUrl = config.daemon_url;
 
     // The key we minted on a previous run, stored in the integration config.
+    // A client key is bound to ONE profile: after a change of the profile
+    // number, the stored key still authenticates, but on the old profile.
     if (config.client_key) {
       try {
-        await this.createClient({ daemonUrl, clientKey: config.client_key }).authenticationTest();
-        return config.client_key;
+        const stored = this.createClient({ daemonUrl, clientKey: config.client_key });
+        await stored.authenticationTest();
+        const owner = await stored.identityGet();
+        if (String(owner.id) === String(identity.id)) {
+          return config.client_key;
+        }
+        logger.warn(
+          `The stored client key belongs to the Olvid profile #${owner.id}, not #${identity.id}: picking another one`,
+        );
       } catch (e) {
         logger.warn(`The stored client key is no longer valid (${describeOlvidError(e)})`);
       }
@@ -875,6 +920,13 @@ export class OlvidDaemon {
 export function reconnectDelay(attempts) {
   const exponent = Math.min(Math.max(attempts - RECONNECT_STEADY_ATTEMPTS, 0), 6);
   return Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+}
+
+// gRPC "unavailable": nothing answers at the daemon address (yet).
+function isUnavailable(error) {
+  return (
+    error?.code === GRPC_UNAVAILABLE || /ECONNREFUSED|\[unavailable\]/i.test(error?.message ?? '')
+  );
 }
 
 /**
