@@ -238,7 +238,7 @@ export class OlvidDaemon {
     this.identity = identity;
 
     this.watchClientStop(client);
-    await this.applyInvitationSettings();
+    await this.applyIdentitySettings();
     await this.refreshContacts();
     this.subscribe();
     this.startHealthChecks();
@@ -397,15 +397,21 @@ export class OlvidDaemon {
   }
 
   /**
-   * @description Mirror the "accept invitations automatically" preference onto
-   * the Olvid profile. Group invitations are never accepted: the channel is
-   * one-to-one, and a group is a place where a third party could speak with
-   * the authority of the linked user.
+   * @description Mirror the preferences of the integration onto the Olvid
+   * profile, in one settings round trip:
+   *   - "accept invitations automatically". Group invitations are never
+   *     accepted: the channel is one-to-one, and a group is a place where a
+   *     third party could speak with the authority of the linked user;
+   *   - the message retention policy: the daemon deletes the messages older
+   *     than `message_retention_days`, so the profile database does not keep
+   *     every conversation with the home forever (privacy, disk space). The
+   *     messages sent while the integration is down are replayed at startup,
+   *     well within that delay.
    * @returns {Promise<void>} Resolves once the daemon stored the settings.
    * @example
-   * await daemon.applyInvitationSettings();
+   * await daemon.applyIdentitySettings();
    */
-  async applyInvitationSettings() {
+  async applyIdentitySettings() {
     this.assertConnected();
     const enabled = Boolean(this.config.auto_accept_invitations);
     const identitySettings = await this.client.settingsIdentityGet();
@@ -415,12 +421,17 @@ export class OlvidDaemon {
       autoAcceptIntroduction: enabled,
       autoAcceptGroup: false,
     });
+    identitySettings.messageRetention = create(datatypes.IdentitySettings_MessageRetentionSchema, {
+      // 0 disables the policy, as on the daemon side.
+      existenceDuration: BigInt(retentionSeconds(this.config.message_retention_days)),
+      cleanLockedDiscussions: true,
+    });
     await this.client.settingsIdentitySet({ identitySettings });
   }
 
   /**
    * @description Take a configuration change that does not require rebuilding
-   * the session (the profile name, the invitation preference) into account.
+   * the session (the profile name, the invitation and retention preferences) into account.
    * @param {object} config - Normalized integration configuration.
    * @returns {Promise<void>} Resolves once the daemon is in sync.
    * @example
@@ -439,7 +450,7 @@ export class OlvidDaemon {
       admin_client_key: config.admin_client_key || this.config?.admin_client_key || '',
     };
     if (this.client) {
-      await this.applyInvitationSettings();
+      await this.applyIdentitySettings();
     }
   }
 
@@ -864,6 +875,20 @@ export class OlvidDaemon {
 export function reconnectDelay(attempts) {
   const exponent = Math.min(Math.max(attempts - RECONNECT_STEADY_ATTEMPTS, 0), 6);
   return Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+}
+
+/**
+ * @description Convert the retention delay of the configuration into the
+ * seconds the daemon expects. Anything that is not a positive number of days
+ * disables the policy (0), like on the daemon side.
+ * @param {number} days - Retention delay, in days.
+ * @returns {number} Retention delay, in seconds.
+ * @example
+ * retentionSeconds(30); // 2592000
+ */
+export function retentionSeconds(days) {
+  const value = Math.floor(Number(days));
+  return Number.isFinite(value) && value > 0 ? value * 24 * 60 * 60 : 0;
 }
 
 /**

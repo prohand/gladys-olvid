@@ -2,7 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeConfig } from '../src/config.js';
-import { OlvidDaemon, describeOlvidError, reconnectDelay } from '../src/olvid/daemon.js';
+import {
+  OlvidDaemon,
+  describeOlvidError,
+  reconnectDelay,
+  retentionSeconds,
+} from '../src/olvid/daemon.js';
 import { encodeContactKey } from '../src/olvid/identifiers.js';
 import { createFakeOlvid, fakeContact } from './helpers/fakeOlvid.js';
 
@@ -50,6 +55,8 @@ test('an empty daemon is provisioned: profile, client key, invitation settings',
     false,
     'a bot never joins a group on its own',
   );
+  assert.equal(olvid.state.settings.messageRetention.existenceDuration, 30n * 24n * 3600n);
+  assert.equal(olvid.state.settings.messageRetention.cleanLockedDiscussions, true);
   assert.deepEqual(statuses, [{ connected: true, message: undefined }]);
 
   await daemon.stop();
@@ -473,4 +480,23 @@ test('describeOlvidError surfaces the low-level code', () => {
   assert.equal(describeOlvidError(error), 'fetch failed (ECONNREFUSED)');
   assert.equal(describeOlvidError(new Error('[unavailable] boom')), '[unavailable] boom');
   assert.equal(describeOlvidError(null), 'unknown error');
+});
+
+test('the message retention delay is pushed to the Olvid profile', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon } = build(olvid);
+  await daemon.start(config({ message_retention_days: 7 }));
+  assert.equal(olvid.state.settings.messageRetention.existenceDuration, 7n * 24n * 3600n);
+
+  await daemon.updateSettings(config({ message_retention_days: 0 }));
+
+  assert.equal(olvid.state.settings.messageRetention.existenceDuration, 0n, '0 keeps everything');
+  await daemon.stop();
+});
+
+test('retentionSeconds turns days into seconds, and anything else into 0', () => {
+  assert.equal(retentionSeconds(30), 2592000);
+  assert.equal(retentionSeconds(0), 0);
+  assert.equal(retentionSeconds(-3), 0);
+  assert.equal(retentionSeconds(undefined), 0);
 });

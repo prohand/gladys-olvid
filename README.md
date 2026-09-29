@@ -54,6 +54,7 @@ an admin key instead.
 | Provisioning     | The Olvid profile and the integration's own client key are created on first run, from the daemon admin key                    |
 | Daemon           | Declared as a sub-container: started by the integration with a generated admin key, stopped when the user brings their own    |
 | Invitations      | Accepted automatically (except groups); the manual 4-digit SAS exchange is driven from the Configuration screen               |
+| Retention        | The daemon deletes messages older than the configured delay (30 days by default, `MessageRetention` policy)                   |
 | Resilience       | Health checks, exponential-backoff reconnection, connection status reported in the Gladys UI                                  |
 
 Group discussions are deliberately ignored: an incoming message carries the

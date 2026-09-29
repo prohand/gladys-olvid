@@ -42,6 +42,10 @@ export const DEFAULT_CONFIG = {
   // still has to be completed by hand (Olvid never automates mutual trust):
   // see the `validate_sas` action.
   auto_accept_invitations: true,
+  // Messages older than this many days are deleted from the Olvid profile by
+  // the daemon itself (its MessageRetention policy): privacy and disk space.
+  // 0 keeps everything.
+  message_retention_days: 30,
 };
 
 // Keys the integration stores by itself through `gladys.setConfig()`. They are
@@ -71,11 +75,25 @@ export function normalizeConfig(raw = {}) {
       String(raw.profile_last_name ?? '').trim() || DEFAULT_CONFIG.profile_last_name,
     // Anything but an explicit false means true.
     auto_accept_invitations: raw.auto_accept_invitations !== false,
+    message_retention_days: retentionDays(raw.message_retention_days),
     // Internal storage: the identity client key minted by the integration, and
     // the admin key of the daemon Gladys runs itself.
     client_key: String(raw.client_key ?? '').trim(),
     managed_admin_client_key: String(raw.managed_admin_client_key ?? '').trim(),
   };
+}
+
+// A missing or unreadable value falls back to the default, a negative one to 0
+// (keep everything): the field is a number, but may arrive as a string.
+function retentionDays(value) {
+  if (value === undefined || value === null || value === '') {
+    return DEFAULT_CONFIG.message_retention_days;
+  }
+  const days = Math.floor(Number(value));
+  if (!Number.isFinite(days)) {
+    return DEFAULT_CONFIG.message_retention_days;
+  }
+  return Math.max(days, 0);
 }
 
 /**
