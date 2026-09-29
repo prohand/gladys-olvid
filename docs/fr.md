@@ -40,7 +40,9 @@ Au premier démarrage, sans rien remplir, l'intégration :
 2. crée un profil Olvid particulier, puisque le démon est vide ;
 3. se crée sa propre clé client, limitée à ce profil (la clé admin ne sert qu'à
    ça) ;
-4. active l'acceptation automatique des invitations reçues.
+4. active l'acceptation automatique des invitations reçues ;
+5. règle la conservation des messages : le démon supprime les messages de plus
+   de 30 jours (champ **Conservation des messages**, 0 garde tout).
 
 Le démarrage du démon prend quelques dizaines de secondes la première fois
 (téléchargement de l'image comprise) : le statut de l'intégration passe de
@@ -102,7 +104,10 @@ depuis la même page.
   salon ? », « allume la lumière du bureau » ;
 - les scènes qui envoient un message peuvent choisir le canal Olvid ;
 - les images envoyées par Gladys (photo de caméra) arrivent en pièce jointe ;
-- les réponses longues sont découpées en plusieurs messages.
+- les réponses longues sont découpées en plusieurs messages ;
+- les anciens messages sont supprimés par le démon après le délai du champ
+  **Conservation des messages** (30 jours par défaut), pour la confidentialité
+  et la place disque.
 
 Les discussions **de groupe** sont volontairement ignorées : un message reçu
 parle avec les droits de l'utilisateur lié, ce qui n'a de sens qu'en tête-à-tête.

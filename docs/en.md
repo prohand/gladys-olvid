@@ -38,7 +38,9 @@ On the first run, with nothing to fill in, the integration:
 2. creates a personal Olvid profile, since the daemon is empty;
 3. mints its own client key, scoped to that profile (the admin key is only used
    for that);
-4. enables automatic acceptance of incoming invitations.
+4. enables automatic acceptance of incoming invitations;
+5. sets a message retention policy: the daemon deletes the messages older than
+   30 days (**Message retention** field, 0 keeps everything).
 
 Starting the daemon takes a few tens of seconds the first time (image download
 included): the integration status goes from "Starting the Olvid daemon…" to
@@ -98,7 +100,9 @@ page.
   on the office light";
 - scenes that send a message can pick the Olvid channel;
 - images sent by Gladys (a camera snapshot) arrive as an attachment;
-- long answers are split into several messages.
+- long answers are split into several messages;
+- old messages are deleted by the daemon after the delay of the **Message
+  retention** field (30 days by default), for privacy and disk space.
 
 **Group** discussions are deliberately ignored: an incoming message speaks with
 the authority of the linked user, which only makes sense one-to-one.

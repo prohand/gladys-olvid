@@ -27,6 +27,12 @@ test('the manifest declares a bidirectional communication channel', () => {
   assert.equal(manifest.contact_schema, undefined);
 });
 
+test('the manifest declares the cloud transport', () => {
+  // Olvid messages travel through the Olvid servers: the store shows the
+  // "Cloud" badge. A single transport renders no "prefer local" toggle.
+  assert.deepEqual(manifest.transports, ['cloud']);
+});
+
 test('declaring catalog categories requires Gladys >= 4.86.0', () => {
   // The store vocabulary itself is checked by the store validator (unknown
   // keys are dropped with a warning there) — what this test pins is the

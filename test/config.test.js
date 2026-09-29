@@ -46,6 +46,15 @@ test('an empty profile name falls back to the default rather than an empty ident
   assert.equal(config.profile_last_name, DEFAULT_CONFIG.profile_last_name);
 });
 
+test('message_retention_days defaults to 30 days and is never negative', () => {
+  assert.equal(normalizeConfig().message_retention_days, 30);
+  assert.equal(normalizeConfig({ message_retention_days: '' }).message_retention_days, 30);
+  assert.equal(normalizeConfig({ message_retention_days: 'abc' }).message_retention_days, 30);
+  assert.equal(normalizeConfig({ message_retention_days: '7' }).message_retention_days, 7);
+  assert.equal(normalizeConfig({ message_retention_days: 0 }).message_retention_days, 0);
+  assert.equal(normalizeConfig({ message_retention_days: -5 }).message_retention_days, 0);
+});
+
 test('auto_accept_invitations defaults to true and only an explicit false disables it', () => {
   assert.equal(normalizeConfig().auto_accept_invitations, true);
   assert.equal(normalizeConfig({ auto_accept_invitations: false }).auto_accept_invitations, false);
