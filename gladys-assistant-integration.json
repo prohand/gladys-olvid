@@ -6,8 +6,8 @@
     "en": "Chat with your home from Olvid, the end-to-end encrypted messenger (personal profile).",
     "fr": "Discutez avec votre maison depuis Olvid, la messagerie chiffrée de bout en bout."
   },
-  "version": "1.0.4",
-  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.4",
+  "version": "1.0.5",
+  "docker_image": "ghcr.io/prohand/gladys-olvid:1.0.5",
   "gladys_version": ">=4.86.0",
   "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
   "categories": ["notifications"],
