@@ -85,3 +85,11 @@ test('normalizeLanguage reduces a locale to a supported language', () => {
   assert.equal(normalizeLanguage('de'), null);
   assert.equal(normalizeLanguage(undefined), null);
 });
+
+test('an emoji is never cut in half', () => {
+  const text = `${'a'.repeat(9)}😀${'b'.repeat(20)}`;
+  const chunks = splitOutgoing(text, 10);
+  assert.equal(chunks.join(''), text);
+  assert.ok(chunks.every((chunk) => chunk.isWellFormed()));
+  assert.ok(truncateIncoming(`${'a'.repeat(8)}😀tail`, 10).isWellFormed());
+});

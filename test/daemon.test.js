@@ -500,3 +500,46 @@ test('retentionSeconds turns days into seconds, and anything else into 0', () =>
   assert.equal(retentionSeconds(-3), 0);
   assert.equal(retentionSeconds(undefined), 0);
 });
+
+test('a stored client key of another profile is not reused', async () => {
+  const olvid = createFakeOlvid({
+    identities: [
+      { id: 1n, displayName: 'Old' },
+      { id: 2n, displayName: 'New' },
+    ],
+    clientKeys: [{ name: 'gladys-assistant', identityId: 1n, key: 'key-of-profile-1' }],
+  });
+  const { daemon, savedKeys } = build(olvid);
+
+  await daemon.start(config({ identity_id: 2, client_key: 'key-of-profile-1' }));
+
+  assert.equal(daemon.identity.displayName, 'New');
+  assert.deepEqual(savedKeys, ['key-gladys-assistant-2']);
+  assert.equal(daemon.config.client_key, 'key-gladys-assistant-2');
+  await daemon.stop();
+});
+
+test('a connection attempt replaced by a new start never installs its client', async () => {
+  const { contact, discussion, message } = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [contact], discussions: [discussion] });
+  const { daemon, received, statuses } = build(olvid);
+
+  // The first attempt waits on a daemon that is still booting…
+  let release;
+  olvid.state.adminAuthGate = new Promise((resolve) => (release = resolve));
+  const first = daemon.start(config());
+  // …while the Gladys WebSocket reconnects and starts the session again.
+  const second = daemon.start(config());
+  release();
+  await Promise.all([first, second]);
+
+  assert.equal(daemon.connected, true);
+  assert.deepEqual(
+    statuses.map((status) => status.connected),
+    [true],
+    'one session reported, no stale "unreachable" over it',
+  );
+  await olvid.emitMessage(message('hello'));
+  assert.equal(received.length, 1);
+  await daemon.stop();
+});
