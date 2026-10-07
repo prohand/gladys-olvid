@@ -6,6 +6,10 @@ All notable changes to this integration are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-07
+
+- Maintenance release, no functional change.
+
 ## [1.1.0] - 2026-10-06
 
 ### Added
@@ -70,7 +74,8 @@ First public release.
 - Create the daemon volumes writable before starting the container
 - Give the daemon a temporary folder it is allowed to execute from
 
-[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/prohand/gladys-olvid/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/prohand/gladys-olvid/compare/v1.0.6...v1.1.0
 [1.0.6]: https://github.com/prohand/gladys-olvid/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/prohand/gladys-olvid/compare/v1.0.4...v1.0.5
