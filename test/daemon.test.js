@@ -7,6 +7,7 @@ import {
   describeOlvidError,
   reconnectDelay,
   retentionSeconds,
+  withTimeout,
 } from '../src/olvid/daemon.js';
 import { encodeContactKey } from '../src/olvid/identifiers.js';
 import { createFakeOlvid, fakeContact } from './helpers/fakeOlvid.js';
@@ -542,4 +543,143 @@ test('a connection attempt replaced by a new start never installs its client', a
   await olvid.emitMessage(message('hello'));
   assert.equal(received.length, 1);
   await daemon.stop();
+});
+
+// A daemon gone without closing the connection: the call never settles.
+const never = () => new Promise(() => {});
+
+test('a ping the daemon never answers tears the session down', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon, statuses } = build(olvid, { rpcTimeoutMs: 20 });
+  await daemon.start(config());
+  assert.equal(daemon.connected, true);
+
+  // A remote daemon powered off: no RST, no error, the ping just hangs.
+  olvid.client.ping = never;
+  await daemon.checkHealth();
+
+  assert.equal(daemon.connected, false);
+  assert.equal(statuses.at(-1).connected, false);
+  assert.match(statuses.at(-1).message.en, /Connection to the Olvid daemon lost/);
+  await daemon.stop();
+});
+
+test('a connection attempt the daemon never answers fails and is retried', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon, statuses } = build(olvid, { rpcTimeoutMs: 20 });
+  olvid.adminClient.authenticationAdminTest = never;
+
+  await daemon.start(config());
+
+  assert.equal(daemon.connected, false);
+  assert.match(statuses.at(-1).message.en, /no answer from the Olvid daemon within/);
+  assert.notEqual(daemon.reconnectTimer, null, 'the next attempt is scheduled');
+  assert.equal(olvid.state.adminClientsStopped, olvid.state.adminClientsBuilt);
+  await daemon.stop();
+});
+
+test('a send the daemon never answers fails instead of blocking the notification', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  const { daemon } = build(olvid, { rpcTimeoutMs: 20 });
+  await daemon.start(config());
+
+  olvid.client.messageSend = never;
+
+  await assert.rejects(
+    () => daemon.sendMessage(contactKeyOf(7), { text: 'hello' }),
+    /no answer from the Olvid daemon within/,
+  );
+  await daemon.stop();
+});
+
+test('a late ping failure never tears down the session that replaced it', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon } = build(olvid);
+  await daemon.start(config());
+
+  let fail;
+  olvid.client.ping = () => new Promise((_, reject) => (fail = reject));
+  const health = daemon.checkHealth();
+  delete olvid.client.ping;
+  await daemon.start(config());
+  fail(new Error('[unavailable] the old connection died'));
+  await health;
+
+  assert.equal(daemon.connected, true);
+  await daemon.stop();
+});
+
+test('every client built for a session is stopped once unused', async () => {
+  const olvid = createFakeOlvid({
+    identities: [{ id: 1n, displayName: 'Maison' }],
+    clientKeys: [{ name: 'gladys-assistant', identityId: 1n, key: 'key-1' }],
+  });
+  const { daemon } = build(olvid);
+
+  // The stored key is checked with a client of its own, then the session
+  // client is built: the admin client and the checking client are not needed.
+  await daemon.start(config({ client_key: 'key-1' }));
+  assert.equal(olvid.state.adminClientsStopped, olvid.state.adminClientsBuilt);
+  assert.deepEqual(
+    olvid.state.clients.map((client) => client.stopped),
+    [true, false],
+  );
+
+  await daemon.stop();
+  assert.ok(olvid.state.clients.every((client) => client.stopped));
+});
+
+test('a client whose authentication fails is stopped', async () => {
+  const olvid = createFakeOlvid();
+  const { daemon } = build(olvid);
+  olvid.client.authenticationTest = async () => {
+    throw new Error('[unauthenticated] bad key');
+  };
+
+  await daemon.start(config());
+
+  assert.equal(daemon.connected, false);
+  assert.ok(olvid.state.clients.length > 0);
+  assert.ok(olvid.state.clients.every((client) => client.stopped));
+  assert.equal(olvid.state.adminClientsStopped, olvid.state.adminClientsBuilt);
+  await daemon.stop();
+});
+
+test('an unknown contact refreshes the contact cache at most once a minute', async () => {
+  const john = fakeContact(7, 'John');
+  const olvid = createFakeOlvid({ contacts: [john.contact], discussions: [john.discussion] });
+  let now = 1_000_000;
+  const { daemon } = build(olvid, { now: () => now });
+  await daemon.start(config());
+  const listings = olvid.state.contactListCalls;
+
+  // A Gladys link to a contact deleted in Olvid, notified over and over.
+  for (let i = 0; i < 3; i += 1) {
+    await assert.rejects(
+      () => daemon.sendMessage(contactKeyOf(42), { text: 'alert' }),
+      /unknown Olvid contact/,
+    );
+  }
+  assert.equal(olvid.state.contactListCalls, listings + 1);
+
+  now += 60_000;
+  await assert.rejects(
+    () => daemon.sendMessage(contactKeyOf(42), { text: 'alert' }),
+    /unknown Olvid contact/,
+  );
+  assert.equal(olvid.state.contactListCalls, listings + 2);
+  await daemon.stop();
+});
+
+test('withTimeout passes an answer through and rejects a silence', async () => {
+  assert.equal(await withTimeout(Promise.resolve(42), 'answer', 50), 42);
+  await assert.rejects(
+    () => withTimeout(never(), 'ping', 10),
+    (error) => {
+      assert.equal(error.code, 'ETIMEDOUT');
+      assert.match(error.message, /\(ping\)/);
+      return true;
+    },
+  );
 });
