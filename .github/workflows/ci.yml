@@ -8,7 +8,12 @@
 #   3. Tests     -> `node --test`, the built-in runner (no extra dependency).
 #
 # Runs on Node 24, the version the Docker image ships with (see the Dockerfile),
-# so the check exercises the exact runtime the integration runs on.
+# so the check exercises the exact runtime the integration runs on, and on
+# Node 22, the floor `engines` declares.
+#
+# Pull requests also build the image (amd64, not pushed) and import the Olvid
+# client from it: the Dockerfile prunes packages that client lists but never
+# loads, and a new version that starts loading them must fail here.
 # -----------------------------------------------------------------------------
 name: CI
 
@@ -21,7 +26,11 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    name: Lint & test
+    name: Lint & test (Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -29,7 +38,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
@@ -62,3 +71,28 @@ jobs:
 
       - name: Validate like the store indexer
         run: npx --yes github:GladysAssistant/integration-store .
+
+  image:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: Docker image build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the image (not pushed)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: gladys-olvid:ci
+
+      - name: Load the Olvid client and the integration modules from the image
+        run: >-
+          docker run --rm --entrypoint node gladys-olvid:ci -e
+          "Promise.all([import('@olvid/bot-node'), import('/app/src/olvid/daemon.js')]).then(() => console.log('ok'))"
