@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Gladys Assistant **external integration** of type `communication` (Node 20+, ESM, no build
+A Gladys Assistant **external integration** of type `communication` (Node 22+, ESM, no build
 step) that lets users chat with their home from [Olvid](https://olvid.io), the end-to-end
 encrypted messenger — like the Telegram integration: questions answered by the Gladys brain,
 scene notifications in the same discussion. No devices, no discovery screen. Olvid is used in its
@@ -67,6 +67,14 @@ src/i18n.js, src/text.js channel texts in the contact's language, truncation
 - **The session survives a Gladys disconnection** (the Olvid side keeps running); a stopped
   daemon container is detected and restarted (`createDaemonContainerWatch`), and the connection
   status explains the container state rather than a bare "unreachable".
+- **Every gRPC call is bounded** (`RPC_TIMEOUT_MS`, `withTimeout` in `daemon.js`):
+  `@olvid/bot-node` sets no deadline and no HTTP/2 keepalive, so a daemon gone without
+  closing the connection would otherwise hang the ping, a send or a connection attempt
+  forever. Admin and key-checking clients are stopped once provisioning is done.
+- **A Gladys reconnection keeps an open Olvid session** (`shouldRestartSession`): it is
+  only restarted when it is down or a session setting changed.
+- **Unlinked contacts are rate-limited** (`createLinkAttemptLimiter`, 5 messages / 15 min,
+  then silence): invitations are accepted automatically by default.
 - User-facing messages are bilingual `{ en, fr }`; contact keys are shortened in logs.
 
 ### Manifest
