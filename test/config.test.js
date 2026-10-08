@@ -9,6 +9,7 @@ import {
   isManagedDaemon,
   normalizeConfig,
   requiresReconnect,
+  shouldRestartSession,
 } from '../src/config.js';
 
 test('normalizeConfig returns the defaults, plus the internal keys', () => {
@@ -108,5 +109,31 @@ test('requiresReconnect only fires on the keys that define the session', () => {
       normalizeConfig({ admin_client_key: 'k', managed_admin_client_key: 'generated' }),
     ),
     false,
+  );
+});
+
+test('a Gladys reconnection keeps an open Olvid session with the same settings', () => {
+  const previous = normalizeConfig();
+  const same = normalizeConfig();
+  // The Gladys core restarting: the WebSocket comes back, nothing changed.
+  assert.equal(shouldRestartSession({ sessionConnected: true, previous, next: same }), false);
+  // A preference is pushed to the profile, the session itself stays.
+  assert.equal(
+    shouldRestartSession({
+      sessionConnected: true,
+      previous,
+      next: normalizeConfig({ auto_accept_invitations: false }),
+    }),
+    false,
+  );
+  // A session that is down, or a daemon that changed, is (re)started.
+  assert.equal(shouldRestartSession({ sessionConnected: false, previous, next: same }), true);
+  assert.equal(
+    shouldRestartSession({
+      sessionConnected: true,
+      previous,
+      next: normalizeConfig({ daemon_mode: 'external', daemon_url: 'http://x:50051' }),
+    }),
+    true,
   );
 });
