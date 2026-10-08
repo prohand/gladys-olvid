@@ -6,6 +6,8 @@ All notable changes to this integration are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-08
+
 ### Fixed
 
 - Every call to the Olvid daemon is now bounded (15 s, 60 s for an image): a daemon that
@@ -100,7 +102,8 @@ First public release.
 - Create the daemon volumes writable before starting the container
 - Give the daemon a temporary folder it is allowed to execute from
 
-[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/prohand/gladys-olvid/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/prohand/gladys-olvid/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/prohand/gladys-olvid/compare/v1.0.6...v1.1.0
 [1.0.6]: https://github.com/prohand/gladys-olvid/compare/v1.0.5...v1.0.6
