@@ -123,6 +123,23 @@ export function requiresReconnect(previous, next) {
 }
 
 /**
+ * Tell whether a reconnection of the Gladys WebSocket has to restart the Olvid
+ * session. It does not when the session is open and nothing it depends on
+ * changed: the Gladys core restarts several times a week, and rebuilding a
+ * healthy session each time cut its notification streams for nothing.
+ * @param {object} state - What the decision depends on.
+ * @param {boolean} state.sessionConnected - Whether the Olvid session is open.
+ * @param {Record<string, unknown>} state.previous - Configuration before the reconnection.
+ * @param {Record<string, unknown>} state.next - Configuration read after it.
+ * @returns {boolean} True when the session has to be (re)started.
+ * @example
+ * shouldRestartSession({ sessionConnected: daemon.connected, previous, next: config });
+ */
+export function shouldRestartSession({ sessionConnected, previous, next }) {
+  return !sessionConnected || requiresReconnect(previous, next);
+}
+
+/**
  * Tell whether the configuration holds the minimum needed to connect. The
  * managed daemon always does: its address is fixed and its key is generated,
  * so a fresh install has nothing to fill in.

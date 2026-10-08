@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  LINK_ATTEMPTS_MAX,
+  LINK_ATTEMPTS_WINDOW_MS,
+  createLinkAttemptLimiter,
   handleIncomingMessage,
   looksLikeLinkCode,
   refreshContactLanguages,
@@ -152,4 +155,51 @@ test('refreshContactLanguages maps the contacts to the language of their user', 
       ['other', 'en'],
     ],
   );
+});
+
+test('an unlinked contact guessing codes is ignored once over the limit', async () => {
+  const gladys = createFakeGladys({
+    codes: new Map([['GOODCODE', { selector: 'john', first_name: 'John', language: 'en' }]]),
+  });
+  const daemon = createFakeDaemon();
+  let now = 0;
+  const linkAttempts = createLinkAttemptLimiter({ now: () => now });
+  const deps = { gladys, daemon, languages: new Map(), linkAttempts };
+  const linkCalls = () => gladys.calls.filter((c) => c.method === 'linkContact').length;
+
+  for (let i = 0; i < LINK_ATTEMPTS_MAX; i += 1) {
+    await handleIncomingMessage(deps, incoming(`BAD${i}CODE`));
+  }
+  assert.equal(linkCalls(), LINK_ATTEMPTS_MAX);
+  assert.equal(daemon.sent.length, LINK_ATTEMPTS_MAX);
+  assert.match(daemon.sent.at(-1).text, /Too many messages without a valid code/);
+
+  // Over the limit: not even the right code is tried, and nothing is answered.
+  await handleIncomingMessage(deps, incoming('GOODCODE'));
+  await handleIncomingMessage(deps, incoming('hello?'));
+  assert.equal(linkCalls(), LINK_ATTEMPTS_MAX);
+  assert.equal(daemon.sent.length, LINK_ATTEMPTS_MAX);
+
+  // The window closes: the contact may try again.
+  now += LINK_ATTEMPTS_WINDOW_MS;
+  await handleIncomingMessage(deps, incoming('GOODCODE'));
+  assert.equal(linkCalls(), LINK_ATTEMPTS_MAX + 1);
+  assert.match(daemon.sent.at(-1).text, /Account linked to John/);
+});
+
+test('the limit never holds back a linked contact', async () => {
+  const gladys = createFakeGladys({ linkedContacts: new Set([CONTACT]) });
+  const daemon = createFakeDaemon();
+  const linkAttempts = createLinkAttemptLimiter();
+  const deps = { gladys, daemon, languages: new Map(), linkAttempts };
+
+  // Short words look like codes: each is tried as one, then published.
+  for (let i = 0; i < LINK_ATTEMPTS_MAX * 2; i += 1) {
+    await handleIncomingMessage(deps, incoming('ok'));
+  }
+  assert.equal(
+    gladys.calls.filter((c) => c.method === 'publishMessage').length,
+    LINK_ATTEMPTS_MAX * 2,
+  );
+  assert.equal(linkAttempts.isBlocked(CONTACT), false);
 });

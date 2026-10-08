@@ -91,8 +91,11 @@ since an incoming message drives the home with that user's rights.
 3. Gladys answers "Account linked to …". You are done.
 
 Until a contact is linked, Gladys forwards nothing to its brain: it simply
-answers with the instructions. You can revoke a link at any time from the same
-page.
+answers with the instructions. An unlinked contact gets **5 messages per 15
+minutes**: after a fifth message without a valid code, Gladys says so, then
+ignores that discussion (no linking attempt, no answer) until the 15 minutes are
+over — anybody holding the invitation link cannot try codes in a loop. You can
+revoke a link at any time from the same page.
 
 ## Usage
 

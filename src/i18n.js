@@ -29,6 +29,14 @@ const TEXTS = {
     en: 'This code is invalid or expired. Generate a new one from the Gladys Olvid page.',
     fr: 'Ce code est invalide ou expiré. Générez-en un nouveau depuis la page Olvid de Gladys.',
   },
+  link_blocked: {
+    en:
+      'Too many messages without a valid code: I will ignore this discussion for 15 minutes. ' +
+      'Then generate a new code from the Gladys Olvid page and send it to me.',
+    fr:
+      'Trop de messages sans code valide : je vais ignorer cette discussion pendant 15 minutes. ' +
+      'Générez ensuite un nouveau code depuis la page Olvid de Gladys et envoyez-le-moi.',
+  },
   send_failed: {
     en: 'Gladys could not process your message, please try again.',
     fr: "Gladys n'a pas pu traiter votre message, merci de réessayer.",

@@ -39,6 +39,12 @@ export function createFakeOlvid({
     accepted: [],
     settings: { invitation: null },
     stopped: false,
+    // Every client built, in order: each one must be stopped once unused.
+    clients: [],
+    adminClientsBuilt: 0,
+    adminClientsStopped: 0,
+    // Contact listings served, to tell a cache hit from a refresh.
+    contactListCalls: 0,
     listeners: {},
     nextIdentityId: 1n,
     // Key of the last client built: a client key is bound to one profile.
@@ -83,6 +89,7 @@ export function createFakeOlvid({
       return identitySettings;
     },
     contactList() {
+      state.contactListCalls += 1;
       return iterate(state.contacts);
     },
     async contactGet({ contactId }) {
@@ -165,18 +172,35 @@ export function createFakeOlvid({
       state.clientKeys.push(clientKey);
       return clientKey;
     },
+    stop() {
+      state.adminClientsStopped += 1;
+    },
   };
 
   return {
     state,
     client,
     adminClient,
+    // A distinct object per call, like a `new OlvidClient()`: its own abort
+    // controller and its own stopped flag. The RPCs are shared through the
+    // prototype, so a test can still make `olvid.client.ping` hang for all.
     createClient: ({ clientKey } = {}) => {
       state.clientKey = clientKey;
-      client.callbacksAbort = new AbortController();
-      return client;
+      const built = Object.create(client);
+      built.callbacksAbort = new AbortController();
+      built.stopped = false;
+      built.stop = () => {
+        built.stopped = true;
+        state.stopped = true;
+        built.callbacksAbort.abort();
+      };
+      state.clients.push(built);
+      return built;
     },
-    createAdminClient: () => adminClient,
+    createAdminClient: () => {
+      state.adminClientsBuilt += 1;
+      return adminClient;
+    },
     // Simulate what the daemon pushes on its notification streams.
     emitMessage: (message) => state.listeners.message.callback(message),
     emitContact: (contact) => state.listeners.contact.callback(contact),
@@ -184,7 +208,7 @@ export function createFakeOlvid({
     // What @olvid/bot-node does on a gRPC connection error: it logs
     // "connection error, stopping client", calls stop() — and returns WITHOUT
     // calling the endCallback, so the abort is the only trace left.
-    stopClientItself: () => client.stop(),
+    stopClientItself: () => state.clients.at(-1).stop(),
   };
 }
 

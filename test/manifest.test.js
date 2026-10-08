@@ -168,3 +168,24 @@ test('the manifest version matches the docker image tag', () => {
     'the docker_image tag must be the manifest version',
   );
 });
+
+test('the gRPC client and the daemon image move together', async () => {
+  // @olvid/bot-node is generated from the daemon's own protobuf API: a client
+  // and a daemon of different minor versions may disagree on a message or a
+  // call. The client shipped is the one the lock file resolves, the daemon the
+  // one the manifest pins — Dependabot bumps only the first.
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  const majorMinor = (version) =>
+    version
+      .replace(/^[^\d]*/, '')
+      .split('.')
+      .slice(0, 2)
+      .join('.');
+
+  const imageTag = manifest.containers[0].docker_image.split(':')[1];
+  const declared = pkg.dependencies['@olvid/bot-node'];
+  const installed = lock.packages['node_modules/@olvid/bot-node'].version;
+  assert.equal(majorMinor(declared), majorMinor(imageTag), `package.json ${declared}`);
+  assert.equal(majorMinor(installed), majorMinor(imageTag), `package-lock.json ${installed}`);
+});

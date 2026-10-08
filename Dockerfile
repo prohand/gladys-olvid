@@ -16,8 +16,15 @@ RUN apk add --no-cache dumb-init
 WORKDIR /app
 
 # Install the PROD dependencies first (better build cache).
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev || npm install --omit=dev
+# @olvid/bot-node lists tsx (and through it esbuild, ~12 MB of native binary)
+# as a runtime dependency, while its published build never loads either: they
+# only serve its own TypeScript sources. Checked by importing the package with
+# both removed; the CI image job imports it again from the built image.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
+  && rm -rf node_modules/tsx node_modules/esbuild node_modules/@esbuild \
+    node_modules/.bin/tsx node_modules/.bin/esbuild \
+  && npm cache clean --force
 
 # Then the integration code.
 COPY index.js ./

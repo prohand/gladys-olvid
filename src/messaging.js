@@ -23,6 +23,59 @@ import { truncateIncoming } from './text.js';
 
 const logger = createLogger({ name: 'messaging' });
 
+// Messages an UNLINKED contact may send in a window before being ignored.
+// Invitations are accepted automatically by default, so anybody holding the
+// invitation link can talk to the bot: without a bound, they could try linking
+// codes in a loop (one `linkContact` call each), and make the bot answer every
+// message. Five tries cover a user who mistyped their code; the window matches
+// the lifetime of a Gladys linking code.
+export const LINK_ATTEMPTS_MAX = 5;
+export const LINK_ATTEMPTS_WINDOW_MS = 15 * 60_000;
+
+/**
+ * @description Count the messages of unlinked contacts, per contact, over a
+ * window opened by their first message. Past the limit the contact is ignored
+ * — no linking attempt, no answer — until that window closes; the next message
+ * opens a fresh one.
+ * @param {object} [options] - Options.
+ * @param {number} [options.maxAttempts] - Messages allowed per window.
+ * @param {number} [options.windowMs] - Length of the window.
+ * @param {Function} [options.now] - Clock, injectable for the tests.
+ * @returns {{ isBlocked: Function, record: Function, reset: Function }} The limiter.
+ * @example
+ * const linkAttempts = createLinkAttemptLimiter();
+ */
+export function createLinkAttemptLimiter({
+  maxAttempts = LINK_ATTEMPTS_MAX,
+  windowMs = LINK_ATTEMPTS_WINDOW_MS,
+  now = Date.now,
+} = {}) {
+  const windows = new Map();
+
+  // The open window of a contact; a closed one is forgotten, so the map only
+  // holds the contacts heard from in the last window.
+  const current = (contactKey) => {
+    const entry = windows.get(contactKey);
+    if (entry && now() - entry.openedAt < windowMs) {
+      return entry;
+    }
+    windows.delete(contactKey);
+    return null;
+  };
+
+  return {
+    isBlocked: (contactKey) => (current(contactKey)?.count ?? 0) >= maxAttempts,
+    // Returns true when this attempt was the last one allowed.
+    record: (contactKey) => {
+      const entry = current(contactKey) ?? { openedAt: now(), count: 0 };
+      entry.count += 1;
+      windows.set(contactKey, entry);
+      return entry.count >= maxAttempts;
+    },
+    reset: (contactKey) => windows.delete(contactKey),
+  };
+}
+
 /**
  * @description Tell whether a message looks like a Gladys linking code rather
  * than a sentence: short, no space, letters and digits only. A false positive
@@ -44,13 +97,14 @@ export function looksLikeLinkCode(text) {
  * @param {object} deps.gladys - The Gladys SDK instance.
  * @param {object} deps.daemon - The Olvid daemon session (`sendMessage`).
  * @param {Map<string, string>} deps.languages - Contact id -> language of the linked user.
+ * @param {object} [deps.linkAttempts] - Limiter of the unlinked contacts (createLinkAttemptLimiter).
  * @param {object} incoming - The message, as normalized by the daemon module.
  * @returns {Promise<void>} Resolves once the message has been handled.
  * @example
  * await handleIncomingMessage({ gladys, daemon, languages }, incoming);
  */
 export async function handleIncomingMessage(
-  { gladys, daemon, languages },
+  { gladys, daemon, languages, linkAttempts = null },
   { contactKey, contactName, text, attachmentsCount, receivedAt },
 ) {
   const body = (text ?? '').trim();
@@ -68,10 +122,14 @@ export async function handleIncomingMessage(
   // A linking code is short and wordless. When the message looks like one, try
   // the linking first — a linked user typing "ok" is not held back, since an
   // invalid code falls through to the brain right after.
+  // A contact over the limit gets no linking attempt; its message is still
+  // offered to the brain, which is what a linked user typing short words needs.
+  const blocked = linkAttempts?.isBlocked(contactKey) ?? false;
   const mayBeCode = looksLikeLinkCode(body);
-  if (mayBeCode) {
+  if (mayBeCode && !blocked) {
     const linked = await tryLink({ gladys, languages }, { contactKey, contactName, body });
     if (linked) {
+      linkAttempts?.reset(contactKey);
       logger.info(`Contact ${shortKey} linked to the Gladys user ${linked.first_name}`);
       await daemon.sendMessage(contactKey, {
         text: channelText('link_success', linked.language, { firstName: linked.first_name }),
@@ -88,7 +146,22 @@ export async function handleIncomingMessage(
     return;
   }
 
-  // Not linked (and no valid code): explain how to link.
+  // Not linked (and no valid code). Over the limit: silence, so a loop of
+  // guesses gets neither a linking attempt nor an answer.
+  if (blocked) {
+    logger.debug(
+      `Ignoring the unlinked contact ${shortKey}: too many messages without a valid code`,
+    );
+    return;
+  }
+  if (linkAttempts?.record(contactKey)) {
+    logger.warn(
+      `The unlinked contact ${shortKey} sent ${LINK_ATTEMPTS_MAX} messages without a valid code: ` +
+        `ignored for up to ${LINK_ATTEMPTS_WINDOW_MS / 60_000} min`,
+    );
+    await reply('link_blocked');
+    return;
+  }
   logger.info(`Message from the unlinked contact ${shortKey}, sending the linking instructions`);
   await reply(mayBeCode ? 'link_failed' : 'not_linked');
 }

@@ -95,8 +95,12 @@ puisqu'un message reçu commande la maison avec ses droits.
 3. Gladys répond « Compte lié à … ». C'est terminé.
 
 Tant qu'un contact n'est pas lié, Gladys ne transmet rien à son cerveau : elle
-répond simplement la marche à suivre. Vous pouvez révoquer un lien à tout moment
-depuis la même page.
+répond simplement la marche à suivre. Un contact non lié a droit à **5 messages
+par tranche de 15 minutes** : après un cinquième message sans code valide,
+Gladys le signale, puis ignore cette discussion (aucune tentative de liaison,
+aucune réponse) jusqu'à la fin des 15 minutes — quiconque détient le lien
+d'invitation ne peut pas essayer des codes en boucle. Vous pouvez révoquer un
+lien à tout moment depuis la même page.
 
 ## Utilisation
 

@@ -24,8 +24,18 @@
 import { GladysIntegration, logger } from '@gladysassistant/integration-sdk';
 
 import { buildActions } from './src/actions.js';
-import { isConfigured, isManagedDaemon, normalizeConfig, requiresReconnect } from './src/config.js';
-import { handleIncomingMessage, refreshContactLanguages } from './src/messaging.js';
+import {
+  isConfigured,
+  isManagedDaemon,
+  normalizeConfig,
+  requiresReconnect,
+  shouldRestartSession,
+} from './src/config.js';
+import {
+  createLinkAttemptLimiter,
+  handleIncomingMessage,
+  refreshContactLanguages,
+} from './src/messaging.js';
 import {
   createDaemonContainerWatch,
   describeContainerError,
@@ -33,6 +43,16 @@ import {
   stopManagedDaemon,
 } from './src/olvid/container.js';
 import { OlvidDaemon } from './src/olvid/daemon.js';
+import { shortenContactKey } from './src/olvid/identifiers.js';
+
+// Last-resort net: a promise rejected without a handler (a stray callback of a
+// library, a fire-and-forget call missing its catch) would otherwise make Node
+// exit the container — dropping a healthy Olvid session and the messages in
+// flight. Logged so the bug stays visible; uncaught exceptions keep crashing,
+// since the process state is unknown after one.
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection', reason);
+});
 
 const gladys = new GladysIntegration();
 
@@ -43,9 +63,13 @@ let config = normalizeConfig();
 // has no Gladys user yet, so no language either — those get both languages.
 const languages = new Map();
 
+// Unlinked contacts trying linking codes: bounded per contact (src/messaging.js).
+const linkAttempts = createLinkAttemptLimiter();
+
 const daemon = new OlvidDaemon({
   // Olvid -> Gladys: the brain answers through onSendMessage below.
-  onIncomingMessage: (message) => handleIncomingMessage({ gladys, daemon, languages }, message),
+  onIncomingMessage: (message) =>
+    handleIncomingMessage({ gladys, daemon, languages, linkAttempts }, message),
   // Application-level status, shown in the Configuration screen. Distinct from
   // the container state machine: the integration can be RUNNING and still
   // unable to reach the Olvid daemon.
@@ -121,7 +145,8 @@ async function reportConnectionStatus(connected, message) {
 // `contact` is the identity resolved by Gladys ({ id }, our Olvid contact id),
 // `message` is `{ text, file }`. Throwing acks the command as failed.
 gladys.onSendMessage(async (contact, message) => {
-  logger.info(`onSendMessage -> Olvid contact ${contact.id}`);
+  // Shortened: the full contact id is enough to invite that contact.
+  logger.info(`onSendMessage -> Olvid contact ${shortenContactKey(contact.id)}`);
   await daemon.sendMessage(contact.id, message);
 });
 
@@ -153,11 +178,25 @@ gladys.onConfigUpdated(async (newConfig) => {
 // --- Connection lifecycle ------------------------------------------------------
 // The SDK logs the WebSocket lifecycle itself (under the `gladys-sdk` name):
 // these handlers only run the integration's own (re)initialization.
+// The Olvid session outlives a Gladys disconnection (see below), so a
+// reconnection only restarts it when it is down or its settings changed.
 gladys.on('connected', async () => {
   try {
+    const previous = config;
     config = normalizeConfig(await gladys.getConfig());
     await refreshContactLanguages(gladys, languages);
-    await startOlvidSession();
+    if (shouldRestartSession({ sessionConnected: daemon.connected, previous, next: config })) {
+      await startOlvidSession();
+      return;
+    }
+    logger.info('Olvid session still open, keeping it');
+    if (JSON.stringify(previous) !== JSON.stringify(config)) {
+      // Preferences changed while Gladys was away: push them, as onConfigUpdated
+      // does — a failure there leaves the session itself open and working.
+      await daemon
+        .updateSettings(sessionConfig())
+        .catch((e) => logger.error('Applying the configuration to the Olvid profile failed', e));
+    }
   } catch (e) {
     logger.error('Post-connection initialization failed', e);
     await gladys

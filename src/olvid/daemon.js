@@ -45,6 +45,24 @@ const RECONNECT_STEADY_ATTEMPTS = 12;
 // gRPC status code of a daemon that does not answer (Code.Unavailable).
 const GRPC_UNAVAILABLE = 14;
 
+// Longest wait for one answer of the daemon. @olvid/bot-node sets no deadline
+// on its calls and enables no HTTP/2 keepalive (its constructors take no
+// transport option), so a daemon that vanishes WITHOUT closing the connection —
+// a remote host powered off, a network cut — leaves every call pending forever:
+// the health check never fails, the session is believed alive, a notification
+// waits on a send that never returns, and a connection attempt never reaches
+// its retry. A local daemon answers in milliseconds; this is only the bound.
+export const RPC_TIMEOUT_MS = 15_000;
+// An image is uploaded in 1 MB chunks over the same connection: more room.
+const ATTACHMENT_TIMEOUT_MS = 60_000;
+
+// An unknown contact used to rebuild the whole contact cache on EVERY message
+// addressed to it: a Gladys link to a contact since deleted in Olvid cost a
+// full contact listing per notification. Once a minute is enough to catch a
+// contact created while we were offline — the ones met while connected arrive
+// through the contact notification stream anyway.
+const CONTACTS_REFRESH_MIN_INTERVAL_MS = 60_000;
+
 // Messages handed over by Gladys while the session is down wait in the outbox.
 // Bounded both ways: a notification nobody could receive for minutes is stale
 // news (the scene that sent it has moved on), and a daemon that stays down must
@@ -77,6 +95,8 @@ export class OlvidDaemon {
    * @param {Function} options.saveClientKey - `(clientKey) => Promise`, persists the minted key in the integration config.
    * @param {Function} [options.createClient] - Builds an identity-scoped client (seam for the tests).
    * @param {Function} [options.createAdminClient] - Builds an admin client (seam for the tests).
+   * @param {number} [options.rpcTimeoutMs] - Longest wait for one answer of the daemon.
+   * @param {Function} [options.now] - Clock, injectable for the tests.
    * @example
    * const daemon = new OlvidDaemon({ onIncomingMessage, onConnectionChange, saveClientKey });
    */
@@ -86,16 +106,19 @@ export class OlvidDaemon {
     saveClientKey,
     createClient = (options) => new OlvidClient(options),
     createAdminClient = (options) => new OlvidAdminClient(options),
+    rpcTimeoutMs = RPC_TIMEOUT_MS,
+    now = Date.now,
   }) {
     this.onIncomingMessage = onIncomingMessage;
     this.onConnectionChange = onConnectionChange;
     this.saveClientKey = saveClientKey;
     this.createClient = createClient;
     this.createAdminClient = createAdminClient;
+    this.rpcTimeoutMs = rpcTimeoutMs;
+    this.now = now;
 
     this.config = null;
     this.client = null;
-    this.adminClient = null;
     this.identity = null;
 
     // Contact caches: Gladys contact id <-> daemon-local contact id.
@@ -103,6 +126,8 @@ export class OlvidDaemon {
     this.contactKeyById = new Map();
     this.contactNameById = new Map();
     this.discussionIdByContactId = new Map();
+    // Last refresh of the contact cache asked by an unknown contact.
+    this.contactsLookupRefreshedAt = -Infinity;
 
     // Messages waiting for the session to come back (see sendMessage).
     this.outbox = [];
@@ -252,24 +277,37 @@ export class OlvidDaemon {
       daemonUrl,
       clientKey: config.admin_client_key,
     });
-    await adminClient.authenticationAdminTest();
+    let identity;
+    let clientKey;
+    try {
+      await this.rpc(adminClient.authenticationAdminTest(), 'admin authentication');
 
-    // 2) Pick the Olvid profile to drive, creating it when the daemon is empty.
-    const identity = await this.resolveIdentity(adminClient, config);
-    adminClient.currentIdentityId = Number(identity.id);
+      // 2) Pick the Olvid profile to drive, creating it when the daemon is empty.
+      identity = await this.resolveIdentity(adminClient, config);
+      adminClient.currentIdentityId = Number(identity.id);
 
-    // 3) The integration then works with an identity-scoped client key, so a
-    // bug here can never reach another profile of the daemon.
-    const clientKey = await this.resolveClientKey(adminClient, identity, config);
+      // 3) The integration then works with an identity-scoped client key, so a
+      // bug here can never reach another profile of the daemon.
+      clientKey = await this.resolveClientKey(adminClient, identity, config);
+    } finally {
+      // The admin client only serves the provisioning: stopped whatever the
+      // outcome, or every retry against a failing daemon would leave one behind.
+      stopClient(adminClient);
+    }
+
     const client = this.createClient({ daemonUrl, clientKey });
-    await client.authenticationTest();
+    try {
+      await this.rpc(client.authenticationTest(), 'authentication');
+    } catch (e) {
+      stopClient(client);
+      throw e;
+    }
 
     if (generation !== this.generation) {
       // Replaced while we were waiting on the daemon: never install this one.
-      client.stop();
+      stopClient(client);
       throw new Error('connection attempt replaced by a newer one');
     }
-    this.adminClient = adminClient;
     this.client = client;
     this.identity = identity;
 
@@ -332,12 +370,7 @@ export class OlvidDaemon {
     // we asked for is not a connection loss to react to.
     const client = this.client;
     this.client = null;
-    try {
-      client?.stop();
-    } catch (e) {
-      logger.debug('Olvid client already stopped', e);
-    }
-    this.adminClient = null;
+    stopClient(client);
     this.contactIdByKey.clear();
     this.contactKeyById.clear();
     this.contactNameById.clear();
@@ -345,14 +378,50 @@ export class OlvidDaemon {
   }
 
   startHealthChecks() {
-    this.healthTimer = setInterval(() => {
-      const client = this.client;
-      if (!client) {
-        return;
-      }
-      client.ping().catch((e) => this.handleConnectionLost(e));
-    }, HEALTH_CHECK_INTERVAL_MS);
+    this.healthTimer = setInterval(() => this.checkHealth(), HEALTH_CHECK_INTERVAL_MS);
     this.healthTimer.unref?.();
+  }
+
+  /**
+   * @description Ping the daemon, and rebuild the session when it does not
+   * answer in time — a daemon gone without closing the connection never makes
+   * the ping fail on its own.
+   * @returns {Promise<void>} Resolves once the ping settled; never rejects.
+   * @example
+   * await daemon.checkHealth();
+   */
+  async checkHealth() {
+    const client = this.client;
+    if (!client) {
+      return;
+    }
+    try {
+      await this.rpc(client.ping(), 'ping');
+    } catch (e) {
+      // Only the session that was pinged: a slow answer may land after a
+      // reconnection, and must not tear down the session that replaced it.
+      if (this.client === client) {
+        this.handleConnectionLost(e);
+      }
+    }
+  }
+
+  /**
+   * @description Bound a call to the daemon (see RPC_TIMEOUT_MS).
+   * @param {Promise} promise - The pending call.
+   * @param {string} label - What is waited for, for the error message.
+   * @param {number} [timeoutMs] - Longest wait.
+   * @returns {Promise} The answer of the call, or a rejection after the delay.
+   * @example
+   * await this.rpc(client.ping(), 'ping');
+   */
+  rpc(promise, label, timeoutMs = this.rpcTimeoutMs) {
+    return withTimeout(promise, label, timeoutMs);
+  }
+
+  // A server-streamed listing, gathered under one deadline.
+  list(iterable, label) {
+    return this.rpc(collect(iterable), label);
   }
 
   async notifyStatus(connected, message) {
@@ -366,10 +435,7 @@ export class OlvidDaemon {
   // --- Provisioning ----------------------------------------------------------
 
   async resolveIdentity(adminClient, config) {
-    const identities = [];
-    for await (const identity of adminClient.adminIdentityList()) {
-      identities.push(identity);
-    }
+    const identities = await this.list(adminClient.adminIdentityList(), 'profile list');
 
     if (config.identity_id) {
       const found = identities.find((identity) => Number(identity.id) === config.identity_id);
@@ -391,7 +457,7 @@ export class OlvidDaemon {
       firstName: config.profile_first_name,
       lastName: config.profile_last_name,
     });
-    return adminClient.adminIdentityNew({ identityDetails });
+    return this.rpc(adminClient.adminIdentityNew({ identityDetails }), 'profile creation');
   }
 
   async resolveClientKey(adminClient, identity, config) {
@@ -401,10 +467,11 @@ export class OlvidDaemon {
     // A client key is bound to ONE profile: after a change of the profile
     // number, the stored key still authenticates, but on the old profile.
     if (config.client_key) {
+      // A client of its own, only to check the key: stopped once checked.
+      const stored = this.createClient({ daemonUrl, clientKey: config.client_key });
       try {
-        const stored = this.createClient({ daemonUrl, clientKey: config.client_key });
-        await stored.authenticationTest();
-        const owner = await stored.identityGet();
+        await this.rpc(stored.authenticationTest(), 'stored key authentication');
+        const owner = await this.rpc(stored.identityGet(), 'profile of the stored key');
         if (String(owner.id) === String(identity.id)) {
           return config.client_key;
         }
@@ -413,11 +480,13 @@ export class OlvidDaemon {
         );
       } catch (e) {
         logger.warn(`The stored client key is no longer valid (${describeOlvidError(e)})`);
+      } finally {
+        stopClient(stored);
       }
     }
 
     // A key left by a previous install of the integration on the same daemon.
-    for await (const key of adminClient.adminClientKeyList()) {
+    for (const key of await this.list(adminClient.adminClientKeyList(), 'client key list')) {
       if (key.name === CLIENT_KEY_NAME && key.identityId === identity.id) {
         logger.info('Reusing the existing Gladys client key of this profile');
         await this.persistClientKey(key.key);
@@ -426,10 +495,10 @@ export class OlvidDaemon {
     }
 
     logger.info('Creating a client key for Gladys on this profile');
-    const created = await adminClient.adminClientKeyNew({
-      name: CLIENT_KEY_NAME,
-      identityId: identity.id,
-    });
+    const created = await this.rpc(
+      adminClient.adminClientKeyNew({ name: CLIENT_KEY_NAME, identityId: identity.id }),
+      'client key creation',
+    );
     await this.persistClientKey(created.key);
     return created.key;
   }
@@ -459,7 +528,8 @@ export class OlvidDaemon {
   async applyIdentitySettings() {
     this.assertConnected();
     const enabled = Boolean(this.config.auto_accept_invitations);
-    const identitySettings = await this.client.settingsIdentityGet();
+    const client = this.client;
+    const identitySettings = await this.rpc(client.settingsIdentityGet(), 'profile settings');
     identitySettings.invitation = create(datatypes.IdentitySettings_AutoAcceptInvitationSchema, {
       autoAcceptInvitation: enabled,
       autoAcceptOneToOne: enabled,
@@ -471,7 +541,7 @@ export class OlvidDaemon {
       existenceDuration: BigInt(retentionSeconds(this.config.message_retention_days)),
       cleanLockedDiscussions: true,
     });
-    await this.client.settingsIdentitySet({ identitySettings });
+    await this.rpc(client.settingsIdentitySet({ identitySettings }), 'profile settings update');
   }
 
   /**
@@ -505,14 +575,17 @@ export class OlvidDaemon {
     this.contactIdByKey.clear();
     this.contactKeyById.clear();
     this.contactNameById.clear();
-    for await (const contact of this.client.contactList()) {
+    for (const contact of await this.list(this.client.contactList(), 'contact list')) {
       await this.rememberContact(contact);
     }
     logger.info(`${this.contactIdByKey.size} Olvid contact(s) known by this profile`);
   }
 
   async rememberContact(contact) {
-    const bytesIdentifier = await this.client.contactGetBytesIdentifier({ contactId: contact.id });
+    const bytesIdentifier = await this.rpc(
+      this.client.contactGetBytesIdentifier({ contactId: contact.id }),
+      'contact identifier',
+    );
     const contactKey = encodeContactKey(bytesIdentifier);
     this.contactIdByKey.set(contactKey, contact.id);
     this.contactKeyById.set(String(contact.id), contactKey);
@@ -525,7 +598,7 @@ export class OlvidDaemon {
     if (known) {
       return known;
     }
-    const contact = await this.client.contactGet({ contactId });
+    const contact = await this.rpc(this.client.contactGet({ contactId }), 'contact');
     return this.rememberContact(contact);
   }
 
@@ -535,8 +608,13 @@ export class OlvidDaemon {
       return known;
     }
     // A contact created while we were offline, or a Gladys link older than the
-    // current cache: rebuild it once before giving up.
-    await this.refreshContacts();
+    // current cache: rebuild it before giving up — at most once a minute (see
+    // CONTACTS_REFRESH_MIN_INTERVAL_MS).
+    const now = this.now();
+    if (now - this.contactsLookupRefreshedAt >= CONTACTS_REFRESH_MIN_INTERVAL_MS) {
+      this.contactsLookupRefreshedAt = now;
+      await this.refreshContacts();
+    }
     const found = this.contactIdByKey.get(contactKey);
     if (found === undefined) {
       throw new Error(`unknown Olvid contact ${shortenContactKey(contactKey)}`);
@@ -549,7 +627,10 @@ export class OlvidDaemon {
     if (cached !== undefined) {
       return cached;
     }
-    const discussion = await this.client.discussionGetByContact({ contactId });
+    const discussion = await this.rpc(
+      this.client.discussionGetByContact({ contactId }),
+      'discussion of the contact',
+    );
     this.discussionIdByContactId.set(String(contactId), discussion.id);
     return discussion.id;
   }
@@ -612,12 +693,8 @@ export class OlvidDaemon {
    * await daemon.catchUpUnreadMessages();
    */
   async catchUpUnreadMessages() {
-    const backlog = [];
-    for await (const message of this.client.messageList({ unread: true })) {
-      if (message.senderId !== 0n) {
-        backlog.push(message);
-      }
-    }
+    const unread = await this.list(this.client.messageList({ unread: true }), 'unread messages');
+    const backlog = unread.filter((message) => message.senderId !== 0n);
     if (backlog.length === 0) {
       return;
     }
@@ -639,7 +716,10 @@ export class OlvidDaemon {
       return;
     }
 
-    const discussion = await this.client.discussionGet({ discussionId: message.discussionId });
+    const discussion = await this.rpc(
+      this.client.discussionGet({ discussionId: message.discussionId }),
+      'discussion',
+    );
     if (discussion.identifier.case !== 'contactId') {
       // Group discussions are out of scope: an incoming message carries the
       // authority of the linked Gladys user, which must stay one-to-one.
@@ -773,14 +853,18 @@ export class OlvidDaemon {
     }
 
     if (attachment) {
-      await client.messageSendWithAttachments({
-        discussionId,
-        body: chunks.shift(),
-        attachments: [attachment],
-      });
+      await this.rpc(
+        client.messageSendWithAttachments({
+          discussionId,
+          body: chunks.shift(),
+          attachments: [attachment],
+        }),
+        'message with an image',
+        Math.max(this.rpcTimeoutMs, ATTACHMENT_TIMEOUT_MS),
+      );
     }
     for (const chunk of chunks) {
-      await client.messageSend({ discussionId, body: chunk });
+      await this.rpc(client.messageSend({ discussionId, body: chunk }), 'message');
     }
   }
 
@@ -795,7 +879,7 @@ export class OlvidDaemon {
    */
   async getInvitationLink() {
     this.assertConnected();
-    return this.client.identityGetInvitationLink();
+    return this.rpc(this.client.identityGetInvitationLink(), 'invitation link');
   }
 
   /**
@@ -808,7 +892,7 @@ export class OlvidDaemon {
   async listInvitations() {
     this.assertConnected();
     const invitations = [];
-    for await (const invitation of this.client.invitationList()) {
+    for (const invitation of await this.list(this.client.invitationList(), 'invitation list')) {
       invitations.push({
         id: invitation.id,
         status: datatypes.Invitation_Status[invitation.status] ?? String(invitation.status),
@@ -836,7 +920,10 @@ export class OlvidDaemon {
       if (!invitation.acceptable) {
         continue;
       }
-      await this.client.invitationAccept({ invitationId: invitation.id });
+      await this.rpc(
+        this.client.invitationAccept({ invitationId: invitation.id }),
+        'invitation acceptance',
+      );
       accepted.push(invitation.displayName);
     }
     return accepted;
@@ -876,7 +963,7 @@ export class OlvidDaemon {
       );
     }
 
-    await this.client.invitationSas({ invitationId: target.id, sas: code });
+    await this.rpc(this.client.invitationSas({ invitationId: target.id, sas: code }), 'SAS code');
     return { id: target.id, displayName: target.displayName };
   }
 
@@ -889,8 +976,8 @@ export class OlvidDaemon {
    */
   async describeStatus() {
     this.assertConnected();
-    const version = await this.client.daemonVersion();
-    const identity = await this.client.identityGet();
+    const version = await this.rpc(this.client.daemonVersion(), 'daemon version');
+    const identity = await this.rpc(this.client.identityGet(), 'profile');
     const invitations = await this.listInvitations();
     return {
       version,
@@ -920,6 +1007,49 @@ export class OlvidDaemon {
 export function reconnectDelay(attempts) {
   const exponent = Math.min(Math.max(attempts - RECONNECT_STEADY_ATTEMPTS, 0), 6);
   return Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exponent, RECONNECT_MAX_DELAY_MS);
+}
+
+/**
+ * @description Bound a pending call: reject when it has not settled after
+ * `timeoutMs`. The call itself cannot be cancelled (@olvid/bot-node takes no
+ * signal), but the caller stops waiting and the session can be rebuilt.
+ * @param {Promise} promise - The pending call.
+ * @param {string} label - What is waited for, for the error message.
+ * @param {number} timeoutMs - Longest wait, in milliseconds.
+ * @returns {Promise} The outcome of the call, or a timeout rejection.
+ * @example
+ * await withTimeout(client.ping(), 'ping', 15_000);
+ */
+export function withTimeout(promise, label, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(
+        `no answer from the Olvid daemon within ${Math.round(timeoutMs / 1000)} s (${label})`,
+      );
+      error.code = 'ETIMEDOUT';
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
+async function collect(iterable) {
+  const items = [];
+  for await (const item of iterable) {
+    items.push(item);
+  }
+  return items;
+}
+
+// Stopping a client releases its notification streams; one already stopped, or
+// a stand-in without stop(), is not an error.
+function stopClient(client) {
+  try {
+    client?.stop?.();
+  } catch (e) {
+    logger.debug('Olvid client already stopped', e);
+  }
 }
 
 // gRPC "unavailable": nothing answers at the daemon address (yet).

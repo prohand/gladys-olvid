@@ -6,6 +6,32 @@ All notable changes to this integration are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Every call to the Olvid daemon is now bounded (15 s, 60 s for an image): a daemon that
+  disappears without closing the connection no longer leaves the session believed alive, a
+  notification stuck on its send, or a connection attempt that never retries.
+- A reconnection to Gladys no longer restarts a healthy Olvid session; it is only restarted
+  when it is down or its daemon settings changed.
+- The admin client and the client checking the stored key are stopped once used, instead of
+  piling up at every reconnection.
+- A contact Olvid does not know refreshes the contact list at most once a minute, instead of
+  on every notification addressed to it.
+
+### Security
+
+- An unlinked contact may send 5 messages per 15 minutes; past that, its discussion is ignored
+  (no linking attempt, no answer) until the window ends, so linking codes cannot be tried in a
+  loop.
+- Olvid contact ids are shortened in the logs of outgoing messages too.
+
+### Changed
+
+- Node.js 22 or later is required (`engines`); CI tests Node 22 and 24 and builds the image on
+  pull requests.
+- The image no longer ships `tsx` and `esbuild` (~12 MB), listed by `@olvid/bot-node` but never
+  loaded at runtime.
+
 ## [1.2.0] - 2026-10-07
 
 - Maintenance release, no functional change.
