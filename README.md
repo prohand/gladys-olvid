@@ -64,7 +64,8 @@ authority of the linked Gladys user, which only makes sense one-to-one.
 
 The full walkthrough (invitation, account linking, own-daemon mode,
 troubleshooting) is the user documentation Gladys re-hosts:
-[`docs/en.md`](./docs/en.md) — [`docs/fr.md`](./docs/fr.md).
+[`docs/en.md`](./docs/en.md) — [`docs/fr.md`](./docs/fr.md) — [`docs/de.md`](./docs/de.md) —
+[`docs/es.md`](./docs/es.md).
 
 The short version:
 
@@ -88,9 +89,9 @@ The short version:
 │  ├─ messaging.js                   # routing: publish to the brain, or run the linking flow
 │  ├─ actions.js                     # handlers of the Configuration screen buttons
 │  ├─ config.js                      # config defaults + normalization
-│  ├─ i18n.js                        # texts written in the channel (en/fr)
+│  ├─ i18n.js                        # texts written in the channel (en/fr/de/es)
 │  └─ text.js                        # truncating and splitting messages
-├─ docs/en.md, docs/fr.md            # user documentation (mandatory, re-hosted by Gladys)
+├─ docs/{en,fr,de,es}.md             # user documentation (re-hosted by Gladys)
 ├─ gladys-assistant-integration.json # manifest (name, config schema, actions, image…)
 ├─ Dockerfile                        # Node 24 Alpine, read-only rootfs ready
 └─ .github/workflows/                # CI + UI-driven release (bump, tag, multi-arch build)

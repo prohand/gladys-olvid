@@ -286,10 +286,14 @@ export function createDaemonContainerWatch({
         ? {
             en: `The Olvid daemon container had stopped (${container.status}), starting it back up. Check its logs in Gladys.`,
             fr: `Le conteneur du démon Olvid s'était arrêté (${container.status}), redémarrage en cours. Consultez ses logs dans Gladys.`,
+            de: `Der Container des Olvid-Daemons war gestoppt (${container.status}), er wird neu gestartet. Prüfen Sie seine Protokolle in Gladys.`,
+            es: `El contenedor del daemon de Olvid se había detenido (${container.status}), reiniciándolo. Consulte sus registros en Gladys.`,
           }
         : {
             en: `The Olvid daemon container stopped (${container.status}). Check its logs in Gladys.`,
             fr: `Le conteneur du démon Olvid s'est arrêté (${container.status}). Consultez ses logs dans Gladys.`,
+            de: `Der Container des Olvid-Daemons wurde gestoppt (${container.status}). Prüfen Sie seine Protokolle in Gladys.`,
+            es: `El contenedor del daemon de Olvid se ha detenido (${container.status}). Consulte sus registros en Gladys.`,
           };
       return message;
     } catch (e) {
@@ -305,7 +309,7 @@ export function createDaemonContainerWatch({
  * Configuration screen. The two cases a user can act on are a Gladys too old
  * to run sub-containers and an image that could not be pulled.
  * @param {Error} error - Error thrown by the host API.
- * @returns {{en: string, fr: string}} Multi-language status message.
+ * @returns {{en: string, fr: string, de: string, es: string}} Multi-language status message.
  * @example
  * await gladys.setConnectionStatus(false, describeContainerError(e));
  */
@@ -315,10 +319,14 @@ export function describeContainerError(error) {
     return {
       en: `The Olvid daemon container is unknown to this Gladys (${reason}). Update Gladys, or switch the "Olvid daemon" field to "My own daemon".`,
       fr: `Le conteneur du démon Olvid est inconnu de ce Gladys (${reason}). Mettez Gladys à jour, ou basculez le champ « Démon Olvid » sur « Mon propre démon ».`,
+      de: `Der Container des Olvid-Daemons ist dieser Gladys-Instanz unbekannt (${reason}). Aktualisieren Sie Gladys oder stellen Sie das Feld „Olvid-Daemon“ auf „Mein eigener Daemon“ um.`,
+      es: `Esta instancia de Gladys no conoce el contenedor del daemon de Olvid (${reason}). Actualice Gladys o cambie el campo «Daemon de Olvid» a «Mi propio daemon».`,
     };
   }
   return {
     en: `Starting the Olvid daemon failed: ${reason}`,
     fr: `Le démarrage du démon Olvid a échoué : ${reason}`,
+    de: `Der Start des Olvid-Daemons ist fehlgeschlagen: ${reason}`,
+    es: `El inicio del daemon de Olvid ha fallado: ${reason}`,
   };
 }

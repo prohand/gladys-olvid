@@ -104,26 +104,57 @@ test('section fields are purely presentational', () => {
     assert.equal(section.required, undefined);
     assert.equal(section.default, undefined);
     assert.equal(section.placeholder, undefined);
-    assert.ok(section.label?.en && section.label?.fr);
+    assert.ok(section.label?.en && section.label?.fr && section.label?.de && section.label?.es);
     for (const link of section.links ?? []) {
       assert.match(link.url, /^https:\/\//);
     }
   }
 });
 
-test('every user-facing text exists in both languages', () => {
-  const texts = [
-    manifest.description,
-    ...manifest.config_schema.flatMap((field) => [field.label, field.description]),
-    ...(manifest.actions ?? []).flatMap((action) => [
-      action.label,
-      action.description,
-      ...(action.fields ?? []).flatMap((field) => [field.label, field.description]),
-    ]),
-  ].filter(Boolean);
-  for (const text of texts) {
-    assert.ok(text.en, `missing English text in ${JSON.stringify(text)}`);
-    assert.ok(text.fr, `missing French text in ${JSON.stringify(text)}`);
+// The languages of the Gladys interface: every text the user reads carries them all.
+const LANGUAGES = ['en', 'fr', 'de', 'es'];
+
+// Every multi-language object of the manifest, wherever it sits (labels,
+// descriptions, placeholders, option and link labels…), with its path.
+function collectTexts(node, path = '', found = []) {
+  if (Array.isArray(node)) {
+    node.forEach((item, index) => collectTexts(item, `${path}[${index}]`, found));
+  } else if (node && typeof node === 'object') {
+    if (typeof node.en === 'string') {
+      found.push({ path, text: node });
+      return found;
+    }
+    for (const [key, value] of Object.entries(node)) {
+      collectTexts(value, path ? `${path}.${key}` : key, found);
+    }
+  }
+  return found;
+}
+
+test('every user-facing text exists in every language of Gladys', () => {
+  const texts = collectTexts(manifest);
+  assert.ok(texts.length > 30, 'the walk should find the manifest texts');
+  for (const { path, text } of texts) {
+    for (const language of LANGUAGES) {
+      assert.ok(
+        typeof text[language] === 'string' && text[language].trim() !== '',
+        `missing "${language}" text at ${path}`,
+      );
+    }
+    assert.deepEqual(Object.keys(text), LANGUAGES, `unexpected languages at ${path}`);
+  }
+});
+
+test('the texts respect the store length limits in every language', () => {
+  for (const language of LANGUAGES) {
+    const description = manifest.description[language];
+    assert.ok(
+      description.length >= 10 && description.length <= 100,
+      `catalog description "${language}" holds ${description.length} characters (10 to 100)`,
+    );
+    for (const section of manifest.config_schema.filter((field) => field.type === 'section')) {
+      assert.ok((section.description?.[language] ?? '').length <= 1000);
+    }
   }
 });
 

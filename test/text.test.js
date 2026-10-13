@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { MAX_INCOMING_LENGTH, splitOutgoing, truncateIncoming } from '../src/text.js';
 import { decodeImageAttachment } from '../src/olvid/attachments.js';
 import { encodeContactKey, shortenContactKey } from '../src/olvid/identifiers.js';
-import { channelText, normalizeLanguage } from '../src/i18n.js';
+import { channelText, normalizeLanguage, SUPPORTED_LANGUAGES } from '../src/i18n.js';
 
 test('truncateIncoming leaves a normal message untouched', () => {
   assert.equal(truncateIncoming('hello'), 'hello');
@@ -70,19 +70,42 @@ test('a contact id is the base64url of the Olvid bytes identifier', () => {
 test('channelText answers in the language of the user, both when unknown', () => {
   assert.match(channelText('not_linked', 'fr'), /^Votre compte Olvid/);
   assert.match(channelText('not_linked', 'en-US'), /^Your Olvid account/);
+  assert.match(channelText('not_linked', 'de'), /^Ihr Olvid-Konto/);
+  assert.match(channelText('not_linked', 'es-ES'), /^Su cuenta de Olvid/);
   const bilingual = channelText('not_linked', null);
   assert.match(bilingual, /Your Olvid account/);
   assert.match(bilingual, /Votre compte Olvid/);
 });
 
+test('channelText falls back to English for a language it does not translate', () => {
+  assert.equal(channelText('send_failed', 'it'), channelText('send_failed', 'en'));
+});
+
+test('every channel text exists in every supported language', () => {
+  for (const key of [
+    'not_linked',
+    'link_failed',
+    'link_blocked',
+    'send_failed',
+    'attachment_ignored',
+  ]) {
+    const texts = new Set(SUPPORTED_LANGUAGES.map((language) => channelText(key, language)));
+    assert.equal(texts.size, SUPPORTED_LANGUAGES.length, `"${key}" repeats a language`);
+  }
+});
+
 test('channelText interpolates the parameters of a text', () => {
   assert.match(channelText('link_success', 'en', { firstName: 'John' }), /linked to John/);
+  assert.match(channelText('link_success', 'de', { firstName: 'John' }), /mit John verknüpft/);
+  assert.match(channelText('link_success', 'es', { firstName: 'John' }), /vinculada a John/);
 });
 
 test('normalizeLanguage reduces a locale to a supported language', () => {
   assert.equal(normalizeLanguage('fr-FR'), 'fr');
   assert.equal(normalizeLanguage('EN'), 'en');
-  assert.equal(normalizeLanguage('de'), null);
+  assert.equal(normalizeLanguage('de'), 'de');
+  assert.equal(normalizeLanguage('es-ES'), 'es');
+  assert.equal(normalizeLanguage('it'), null);
   assert.equal(normalizeLanguage(undefined), null);
 });
 
