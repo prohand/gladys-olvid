@@ -8,8 +8,8 @@
     "de": "Chatte mit deinem Zuhause über Olvid, den Ende-zu-Ende-verschlüsselten Messenger.",
     "es": "Converse con su casa desde Olvid, la mensajería cifrada de extremo a extremo."
   },
-  "version": "1.2.2",
-  "docker_image": "ghcr.io/prohand/gladys-olvid:1.2.2",
+  "version": "1.3.0",
+  "docker_image": "ghcr.io/prohand/gladys-olvid:1.3.0",
   "gladys_version": ">=4.86.0",
   "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
   "categories": ["notifications"],
