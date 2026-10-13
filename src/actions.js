@@ -63,8 +63,8 @@ export function buildActions({ daemon }) {
           `Ouvrez ce lien sur le téléphone où tourne Olvid, puis invitez Gladys : ${link}\n` +
           "Olvid affichera ensuite un code à 4 chiffres : saisissez-le dans l'action « Valider une invitation » ci-dessous.",
         de:
-          `Öffnen Sie diesen Link auf dem Telefon, auf dem Olvid läuft, und laden Sie Gladys ein: ${link}\n` +
-          'Olvid zeigt dann einen 4-stelligen Code an: Geben Sie ihn unten in der Aktion „Einladung bestätigen“ ein.',
+          `Öffne diesen Link auf dem Telefon, auf dem Olvid läuft, und lade Gladys ein: ${link}\n` +
+          'Olvid zeigt dann einen 4-stelligen Code an: Gib ihn unten in der Aktion „Einladung bestätigen“ ein.',
         es:
           `Abra este enlace en el teléfono donde se ejecuta Olvid e invite a Gladys: ${link}\n` +
           'Olvid mostrará entonces un código de 4 cifras: introdúzcalo en la acción «Validar una invitación» de abajo.',
@@ -109,7 +109,7 @@ export function buildActions({ daemon }) {
       return {
         en: `Accepted: ${accepted.join(', ')}. Exchange the 4-digit code to finish.`,
         fr: `Acceptée(s) : ${accepted.join(', ')}. Échangez le code à 4 chiffres pour terminer.`,
-        de: `Angenommen: ${accepted.join(', ')}. Tauschen Sie den 4-stelligen Code aus, um abzuschließen.`,
+        de: `Angenommen: ${accepted.join(', ')}. Tausche den 4-stelligen Code aus, um abzuschließen.`,
         es: `Aceptada(s): ${accepted.join(', ')}. Intercambie el código de 4 cifras para terminar.`,
       };
     },

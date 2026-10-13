@@ -24,8 +24,8 @@ const TEXTS = {
       "Votre compte Olvid n'est pas encore lié à Gladys. Ouvrez Gladys → Intégrations → Olvid, " +
       'cliquez sur « Lier mon compte », puis envoyez-moi le code affiché.',
     de:
-      'Ihr Olvid-Konto ist noch nicht mit Gladys verknüpft. Öffnen Sie Gladys → Integrationen → Olvid, ' +
-      'klicken Sie auf „Mein Konto verknüpfen“ und senden Sie mir dann den angezeigten Code.',
+      'Dein Olvid-Konto ist noch nicht mit Gladys verknüpft. Öffne Gladys → Integrationen → Olvid, ' +
+      'klicke auf „Mein Konto verknüpfen“ und sende mir dann den angezeigten Code.',
     es:
       'Su cuenta de Olvid aún no está vinculada a Gladys. Abra Gladys → Integraciones → Olvid, ' +
       'pulse «Vincular mi cuenta» y envíeme el código que se muestra.',
@@ -33,13 +33,13 @@ const TEXTS = {
   link_success: ({ firstName }) => ({
     en: `Account linked to ${firstName}. You can now talk to your home from here.`,
     fr: `Compte lié à ${firstName}. Vous pouvez désormais parler à votre maison depuis ici.`,
-    de: `Konto mit ${firstName} verknüpft. Sie können jetzt von hier aus mit Ihrem Zuhause sprechen.`,
+    de: `Konto mit ${firstName} verknüpft. Du kannst jetzt von hier aus mit deinem Zuhause sprechen.`,
     es: `Cuenta vinculada a ${firstName}. Ya puede hablar con su casa desde aquí.`,
   }),
   link_failed: {
     en: 'This code is invalid or expired. Generate a new one from the Gladys Olvid page.',
     fr: 'Ce code est invalide ou expiré. Générez-en un nouveau depuis la page Olvid de Gladys.',
-    de: 'Dieser Code ist ungültig oder abgelaufen. Erzeugen Sie einen neuen auf der Olvid-Seite von Gladys.',
+    de: 'Dieser Code ist ungültig oder abgelaufen. Erzeuge einen neuen auf der Olvid-Seite von Gladys.',
     es: 'Este código no es válido o ha caducado. Genere uno nuevo desde la página de Olvid de Gladys.',
   },
   link_blocked: {
@@ -51,7 +51,7 @@ const TEXTS = {
       'Générez ensuite un nouveau code depuis la page Olvid de Gladys et envoyez-le-moi.',
     de:
       'Zu viele Nachrichten ohne gültigen Code: Ich ignoriere diese Unterhaltung 15 Minuten lang. ' +
-      'Erzeugen Sie danach einen neuen Code auf der Olvid-Seite von Gladys und senden Sie ihn mir.',
+      'Erzeuge danach einen neuen Code auf der Olvid-Seite von Gladys und sende ihn mir.',
     es:
       'Demasiados mensajes sin un código válido: ignoraré esta conversación durante 15 minutos. ' +
       'Después, genere un código nuevo desde la página de Olvid de Gladys y envíemelo.',
@@ -59,7 +59,7 @@ const TEXTS = {
   send_failed: {
     en: 'Gladys could not process your message, please try again.',
     fr: "Gladys n'a pas pu traiter votre message, merci de réessayer.",
-    de: 'Gladys konnte Ihre Nachricht nicht verarbeiten, bitte versuchen Sie es erneut.',
+    de: 'Gladys konnte deine Nachricht nicht verarbeiten, bitte versuche es erneut.',
     es: 'Gladys no ha podido procesar su mensaje, inténtelo de nuevo.',
   },
   attachment_ignored: {

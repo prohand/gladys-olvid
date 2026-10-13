@@ -70,7 +70,7 @@ test('a contact id is the base64url of the Olvid bytes identifier', () => {
 test('channelText answers in the language of the user, both when unknown', () => {
   assert.match(channelText('not_linked', 'fr'), /^Votre compte Olvid/);
   assert.match(channelText('not_linked', 'en-US'), /^Your Olvid account/);
-  assert.match(channelText('not_linked', 'de'), /^Ihr Olvid-Konto/);
+  assert.match(channelText('not_linked', 'de'), /^Dein Olvid-Konto/);
   assert.match(channelText('not_linked', 'es-ES'), /^Su cuenta de Olvid/);
   const bilingual = channelText('not_linked', null);
   assert.match(bilingual, /Your Olvid account/);
