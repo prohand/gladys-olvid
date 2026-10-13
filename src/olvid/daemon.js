@@ -235,6 +235,8 @@ export class OlvidDaemon {
       await this.notifyStatus(false, {
         en: `Olvid daemon unreachable: ${reason}`,
         fr: `Démon Olvid injoignable : ${reason}`,
+        de: `Olvid-Daemon nicht erreichbar: ${reason}`,
+        es: `Daemon de Olvid inaccesible: ${reason}`,
       });
       this.scheduleReconnect();
     }
@@ -264,6 +266,8 @@ export class OlvidDaemon {
     this.notifyStatus(false, {
       en: 'Connection to the Olvid daemon lost, reconnecting…',
       fr: 'Connexion au démon Olvid perdue, reconnexion en cours…',
+      de: 'Verbindung zum Olvid-Daemon verloren, Verbindung wird wiederhergestellt…',
+      es: 'Conexión con el daemon de Olvid perdida, reconectando…',
     }).catch(() => {});
     this.scheduleReconnect();
   }

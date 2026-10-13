@@ -203,6 +203,8 @@ gladys.on('connected', async () => {
       .setConnectionStatus(false, {
         en: 'Initialization failed, check the integration logs.',
         fr: "L'initialisation a échoué, consultez les logs de l'intégration.",
+        de: 'Die Initialisierung ist fehlgeschlagen, prüfe die Protokolle der Integration.',
+        es: 'La inicialización ha fallado, consulte los registros de la integración.',
       })
       .catch(() => {});
   }
@@ -227,6 +229,8 @@ async function startOlvidSession() {
     await gladys.setConnectionStatus(false, {
       en: 'Configuration needed: URL and admin client key of your Olvid daemon.',
       fr: 'Configuration requise : URL et clé client admin de votre démon Olvid.',
+      de: 'Konfiguration erforderlich: URL und Admin-Client-Schlüssel deines Olvid-Daemons.',
+      es: 'Configuración necesaria: URL y clave de cliente admin de su daemon de Olvid.',
     });
     return;
   }
@@ -236,6 +240,8 @@ async function startOlvidSession() {
       await gladys.setConnectionStatus(false, {
         en: 'Starting the Olvid daemon…',
         fr: 'Démarrage du démon Olvid…',
+        de: 'Olvid-Daemon wird gestartet…',
+        es: 'Iniciando el daemon de Olvid…',
       });
       managedDaemon = await startManagedDaemon({
         gladys,

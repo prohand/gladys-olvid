@@ -75,7 +75,9 @@ src/i18n.js, src/text.js channel texts in the contact's language, truncation
   only restarted when it is down or a session setting changed.
 - **Unlinked contacts are rate-limited** (`createLinkAttemptLimiter`, 5 messages / 15 min,
   then silence): invitations are accepted automatically by default.
-- User-facing messages are bilingual `{ en, fr }`; contact keys are shortened in logs.
+- User-facing text is `{ en, fr, de, es }` (channel replies: the linked user's language,
+  English for another one, English + French for an unlinked contact); contact keys are
+  shortened in logs.
 
 ### Manifest
 
@@ -90,5 +92,6 @@ No network and no Docker: `test/helpers/fakeOlvid.js` fakes the daemon client,
 
 ## Conventions
 
-Prettier formats, ESLint catches mistakes. Comments and JSDoc explain **why**. User docs in
-`docs/en.md` and `docs/fr.md`, kept in sync. The integration's own rootfs is read-only.
+Prettier formats, ESLint catches mistakes. Comments and JSDoc explain **why**. User docs:
+`docs/en.md`, `docs/fr.md`, `docs/de.md`, `docs/es.md` stay in sync. The integration's own
+rootfs is read-only.

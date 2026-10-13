@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // Handlers of the manifest `actions` — the buttons of the Configuration screen.
 //
-// Each handler resolves a multi-language message `{ en, fr }`, displayed under
+// Each handler resolves a multi-language message `{ en, fr, de, es }`, displayed under
 // its button (or throws: the error message is shown instead). They are the
 // onboarding path of a "particulier" Olvid profile, which cannot rely on a
 // company directory to meet people:
@@ -15,6 +15,14 @@
 // -----------------------------------------------------------------------------
 
 import { describeOlvidError } from './olvid/daemon.js';
+
+// "code to type in Olvid", per language of the Configuration screen.
+const SAS_TO_TYPE = {
+  en: 'code to type in Olvid: ',
+  fr: 'code à saisir dans Olvid : ',
+  de: 'in Olvid einzugebender Code: ',
+  es: 'código que debe introducir en Olvid: ',
+};
 
 /**
  * @description Build the action handlers, bound to the daemon session.
@@ -36,6 +44,12 @@ export function buildActions({ daemon }) {
         fr:
           `Démon ${report.version} joignable. Profil « ${report.profile} » (n°${report.identityId}), ` +
           `${report.contacts} contact(s) Olvid, ${report.pendingInvitations} invitation(s) en cours.`,
+        de:
+          `Daemon ${report.version} erreichbar. Profil „${report.profile}“ (Nr. ${report.identityId}), ` +
+          `${report.contacts} Olvid-Kontakt(e), ${report.pendingInvitations} laufende Einladung(en).`,
+        es:
+          `Daemon ${report.version} accesible. Perfil «${report.profile}» (n.º ${report.identityId}), ` +
+          `${report.contacts} contacto(s) de Olvid, ${report.pendingInvitations} invitación(es) en curso.`,
       };
     },
 
@@ -48,6 +62,12 @@ export function buildActions({ daemon }) {
         fr:
           `Ouvrez ce lien sur le téléphone où tourne Olvid, puis invitez Gladys : ${link}\n` +
           "Olvid affichera ensuite un code à 4 chiffres : saisissez-le dans l'action « Valider une invitation » ci-dessous.",
+        de:
+          `Öffne diesen Link auf dem Telefon, auf dem Olvid läuft, und lade Gladys ein: ${link}\n` +
+          'Olvid zeigt dann einen 4-stelligen Code an: Gib ihn unten in der Aktion „Einladung bestätigen“ ein.',
+        es:
+          `Abra este enlace en el teléfono donde se ejecuta Olvid e invite a Gladys: ${link}\n` +
+          'Olvid mostrará entonces un código de 4 cifras: introdúzcalo en la acción «Validar una invitación» de abajo.',
       };
     },
 
@@ -57,6 +77,8 @@ export function buildActions({ daemon }) {
         return {
           en: 'No invitation in progress.',
           fr: 'Aucune invitation en cours.',
+          de: 'Keine laufende Einladung.',
+          es: 'Ninguna invitación en curso.',
         };
       }
       const describe = (invitation, language) => {
@@ -64,14 +86,14 @@ export function buildActions({ daemon }) {
         if (!invitation.waitsForSas) {
           return head;
         }
-        return language === 'fr'
-          ? `${head} — code à saisir dans Olvid : ${invitation.sas ?? '—'}`
-          : `${head} — code to type in Olvid: ${invitation.sas ?? '—'}`;
+        return `${head} — ${SAS_TO_TYPE[language]}${invitation.sas ?? '—'}`;
       };
-      return {
-        en: invitations.map((invitation) => describe(invitation, 'en')).join('\n'),
-        fr: invitations.map((invitation) => describe(invitation, 'fr')).join('\n'),
-      };
+      return Object.fromEntries(
+        Object.keys(SAS_TO_TYPE).map((language) => [
+          language,
+          invitations.map((invitation) => describe(invitation, language)).join('\n'),
+        ]),
+      );
     },
 
     accept_invitations: async () => {
@@ -80,11 +102,15 @@ export function buildActions({ daemon }) {
         return {
           en: 'No invitation was waiting for Gladys to accept it.',
           fr: "Aucune invitation n'attendait l'acceptation de Gladys.",
+          de: 'Keine Einladung wartete auf die Annahme durch Gladys.',
+          es: 'Ninguna invitación esperaba a que Gladys la aceptara.',
         };
       }
       return {
         en: `Accepted: ${accepted.join(', ')}. Exchange the 4-digit code to finish.`,
         fr: `Acceptée(s) : ${accepted.join(', ')}. Échangez le code à 4 chiffres pour terminer.`,
+        de: `Angenommen: ${accepted.join(', ')}. Tausche den 4-stelligen Code aus, um abzuschließen.`,
+        es: `Aceptada(s): ${accepted.join(', ')}. Intercambie el código de 4 cifras para terminar.`,
       };
     },
 
@@ -95,6 +121,8 @@ export function buildActions({ daemon }) {
       return {
         en: `Code accepted for the invitation #${target.id} (${target.displayName}).`,
         fr: `Code accepté pour l'invitation n°${target.id} (${target.displayName}).`,
+        de: `Code für die Einladung Nr. ${target.id} (${target.displayName}) angenommen.`,
+        es: `Código aceptado para la invitación n.º ${target.id} (${target.displayName}).`,
       };
     },
   };
