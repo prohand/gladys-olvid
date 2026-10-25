@@ -33,20 +33,76 @@ test('the manifest declares the cloud transport', () => {
   assert.deepEqual(manifest.transports, ['cloud']);
 });
 
-test('declaring catalog categories requires Gladys >= 4.86.0', () => {
-  // The store vocabulary itself is checked by the store validator (unknown
-  // keys are dropped with a warning there) — what this test pins is the
-  // coupling rule: older cores reject any unknown manifest field, so a
-  // manifest declaring `categories` must not claim compatibility below the
-  // first release that accepts it.
+// The minimum Gladys version a `gladys_version` range accepts, as numbers
+// (never compared as text: "5.10" > "5.3").
+function minimumGladysVersion() {
+  const match = manifest.gladys_version.match(/>=\s*(\d+)\.(\d+)\.(\d+)/);
+  assert.ok(match, 'gladys_version must declare a minimum version');
+  return match.slice(1).map(Number);
+}
+
+function floorAtLeast(major, minor) {
+  const [floorMajor, floorMinor] = minimumGladysVersion();
+  return floorMajor > major || (floorMajor === major && floorMinor >= minor);
+}
+
+// The store's controlled vocabulary of catalog shelves (2026-10).
+const CATEGORY_VOCABULARY = [
+  'climate',
+  'lighting',
+  'energy',
+  'security',
+  'multimedia',
+  'appliances',
+  'environment',
+  'protocols',
+  'network',
+  'notifications',
+  'assistants',
+  'services',
+  'transport',
+  'vehicles',
+  'servers',
+  'leisure',
+];
+
+test('the catalog categories are 1 to 3 known shelves, and need Gladys >= 4.86.0', () => {
+  // An unknown key is only dropped with a warning by the store, so a typo
+  // would silently cost a shelf: the vocabulary is pinned here.
   assert.ok(manifest.categories.length >= 1 && manifest.categories.length <= 3);
-  const minVersion = manifest.gladys_version.match(/>=\s*(\d+)\.(\d+)\.\d+/);
-  assert.ok(minVersion, 'gladys_version must declare a minimum version');
-  const [, major, minor] = minVersion.map(Number);
-  assert.ok(
-    major > 4 || (major === 4 && minor >= 86),
-    `categories requires gladys_version >= 4.86.0, got "${manifest.gladys_version}"`,
-  );
+  assert.equal(new Set(manifest.categories).size, manifest.categories.length);
+  for (const category of manifest.categories) {
+    assert.ok(CATEGORY_VOCABULARY.includes(category), `unknown category "${category}"`);
+  }
+  // Older cores reject any unknown manifest field.
+  assert.ok(floorAtLeast(4, 86), `categories requires gladys_version >= 4.86.0`);
+});
+
+test('the search keywords respect the store rules', () => {
+  const { keywords } = manifest;
+  assert.ok(Array.isArray(keywords) && keywords.length >= 1 && keywords.length <= 10);
+  const normalized = keywords.map((keyword) => keyword.trim().toLowerCase());
+  assert.equal(new Set(normalized).size, keywords.length, 'keywords must be unique');
+  for (const keyword of normalized) {
+    assert.ok(keyword.length >= 2 && keyword.length <= 30, `keyword "${keyword}" (2 to 30)`);
+  }
+});
+
+test('Olvid works in every country: no countries restriction', () => {
+  // `countries` hides the integration from the browse views of the other
+  // countries: a messenger available worldwide must not declare it.
+  assert.equal(manifest.countries, undefined);
+});
+
+test('keywords, countries and music need Gladys >= 5.3.0', () => {
+  // The first core that accepts them: an older one rejects the whole manifest
+  // over an unknown field, so the floor and the fields move together.
+  if (['keywords', 'countries', 'music'].some((field) => field in manifest)) {
+    assert.ok(
+      floorAtLeast(5, 3),
+      `keywords / countries / music require gladys_version >= 5.3.0, got "${manifest.gladys_version}"`,
+    );
+  }
 });
 
 test('every manifest action has a registered handler', () => {

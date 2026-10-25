@@ -28,6 +28,8 @@ solo la integración puede hablar con él.
 
 ## 1. Instalar la integración
 
+La integración requiere **Gladys 5.3.0 o posterior**.
+
 Instale la integración de Olvid desde la tienda de Gladys. La pantalla de
 instalación le indica lo que ejecuta además de sí misma (`olvid/bot-daemon`, su
 límite de memoria y el hecho de que no se publica ningún puerto): ese es el

@@ -27,6 +27,8 @@ integration can talk to it.
 
 ## 1. Install the integration
 
+The integration requires **Gladys 5.3.0 or later**.
+
 Install the Olvid integration from the Gladys store. The install screen tells
 you what it runs besides itself (`olvid/bot-daemon`, its memory limit, and the
 fact that no port is published): that is the contract you accept.

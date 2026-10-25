@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.16.0",
-    "@gladysassistant/integration-sdk": "^0.15.0",
+    "@gladysassistant/integration-sdk": "^0.16.0",
     "@olvid/bot-node": "^2.0.1"
   },
   "devDependencies": {
