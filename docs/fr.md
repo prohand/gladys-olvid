@@ -28,6 +28,8 @@ port — seule l'intégration peut lui parler.
 
 ## 1. Installer l'intégration
 
+L'intégration nécessite **Gladys 5.3.0 ou plus récent**.
+
 Installez l'intégration Olvid depuis le magasin de Gladys. L'écran
 d'installation vous indique ce qu'elle va lancer en plus d'elle-même
 (`olvid/bot-daemon`, sa limite mémoire, et le fait qu'aucun port n'est publié) :

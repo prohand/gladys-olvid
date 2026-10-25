@@ -130,14 +130,19 @@ indexer does:
 npx github:GladysAssistant/integration-store .
 ```
 
+Pull requests run it with `--skip-image-check` (the image of a version bump is
+not published yet); the Release workflow runs it in full once the image is
+pushed.
+
 ## Publishing
 
 1. add the GitHub topic `gladys-assistant-integration` to the repository;
    the manifest declares its catalog shelf in `categories` — `notifications`,
-   the domain a bidirectional messaging channel covers. Declaring the field
-   requires `gladys_version` to start at **4.86.0 or later**: older cores
-   reject unknown manifest fields, and the store validator enforces that
-   coupling;
+   the domain a bidirectional messaging channel covers — and search-only
+   `keywords` (no `countries`: Olvid works everywhere). `keywords` requires
+   `gladys_version` to start at **5.3.0 or later** (`categories` alone needed
+   4.86.0): older cores reject unknown manifest fields, and the store
+   validator enforces that coupling;
 2. **Actions → Release → Run workflow**, pick `patch` / `minor` / `major`: the
    workflow bumps `package.json` and the manifest (`version` +
    `docker_image`), pushes the `vX.Y.Z` tag and builds the

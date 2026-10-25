@@ -10,9 +10,19 @@
   },
   "version": "1.3.1",
   "docker_image": "ghcr.io/prohand/gladys-olvid:1.3.1",
-  "gladys_version": ">=4.86.0",
+  "gladys_version": ">=5.3.0",
   "cover_image": "https://raw.githubusercontent.com/prohand/gladys-olvid/main/cover.png",
   "categories": ["notifications"],
+  "keywords": [
+    "e2ee",
+    "secure messaging",
+    "messagerie sécurisée",
+    "instant messaging",
+    "chatbot",
+    "bot",
+    "privacy",
+    "anssi"
+  ],
   "transports": ["cloud"],
   "messaging": {
     "receive": true
