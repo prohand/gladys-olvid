@@ -6,6 +6,8 @@ All notable changes to this integration are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-25
+
 ### Added
 
 - Search keywords for the Gladys catalog (encrypted messaging, chatbot, privacy…).
@@ -127,7 +129,8 @@ First public release.
 - Create the daemon volumes writable before starting the container
 - Give the daemon a temporary folder it is allowed to execute from
 
-[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/prohand/gladys-olvid/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/prohand/gladys-olvid/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/prohand/gladys-olvid/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/prohand/gladys-olvid/compare/v1.2.1...v1.2.2
