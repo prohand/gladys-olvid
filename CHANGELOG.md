@@ -6,6 +6,10 @@ All notable changes to this integration are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-11-16
+
+- Maintenance release, no functional change.
+
 ## [1.4.2] - 2026-11-16
 
 - Update `@gladysassistant/integration-sdk` to 0.16.1 (security update).
@@ -137,7 +141,8 @@ First public release.
 - Create the daemon volumes writable before starting the container
 - Give the daemon a temporary folder it is allowed to execute from
 
-[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/prohand/gladys-olvid/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/prohand/gladys-olvid/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/prohand/gladys-olvid/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/prohand/gladys-olvid/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/prohand/gladys-olvid/compare/v1.3.1...v1.4.0
